@@ -16,5 +16,5 @@ pods_install_headers(${hpp_files} DESTINATION scanmatch)
 pods_install_pkg_config_file(scanmatch
     LIBS -lscanmatch -lpthread -l${LCMTYPES_LIBS}
     CFLAGS 
-    REQUIRES opencv
+    REQUIRES
     VERSION 0.0.1)

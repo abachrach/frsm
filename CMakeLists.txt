@@ -9,5 +9,5 @@ lcmtypes_build()
 
 include(cmake/ipp.cmake)
 
-add_subdirectory(src/scanmatch)
+add_subdirectory(src/libfrsm)
 add_subdirectory(src/scan-matcher)

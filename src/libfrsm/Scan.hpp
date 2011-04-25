@@ -17,8 +17,6 @@
 #include <vector>
 #include <list>
 #include "ScanMatchingUtils.hpp"
-#include <opencv/cv.h>
-#include <opencv/highgui.h>
 #include <pthread.h>
 #include <values.h>
 
@@ -95,20 +93,20 @@ public:
 
     }
 
-    /**
-     * drawContours:
-     * Convenience function for drawing the set of extracted contours
-     */
-    CvMat*
-    drawContours(int maxDrawDim = 1000, double pixPerMeter = 100,
-            smPoint * point1 = NULL, smPoint* point2 = NULL,
-            double arrowScalFactor = 1);
-
-    //for drawing contours
-private:
-    CvMat * drawIm;
-    CvMat * displayIm;
-    CvMat * squareDisplayIm;
+  //    /**
+  //     * drawContours:
+  //     * Convenience function for drawing the set of extracted contours
+  //     */
+  //    CvMat*
+  //    drawContours(int maxDrawDim = 1000, double pixPerMeter = 100,
+  //            smPoint * point1 = NULL, smPoint* point2 = NULL,
+  //            double arrowScalFactor = 1);
+  //
+  //    //for drawing contours
+  //private:
+  //    CvMat * drawIm;
+  //    CvMat * displayIm;
+  //    CvMat * squareDisplayIm;
 
 };
 

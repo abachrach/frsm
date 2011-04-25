@@ -4,7 +4,6 @@
 #include <signal.h>
 #include <opencv/highgui.h>
 #include <scanmatch/ScanMatcher.hpp>
-#include <scanmatch/ScanMatchingOpencvUtils.hpp>
 
 using namespace std;
 using namespace scanmatch;
@@ -93,7 +92,7 @@ laser_handler(ScanMatcher * sm, float *ranges, int numRanges,
     if (sm_get_time() - lastDrawTime > .2) {
         lastDrawTime = sm_get_time();
         sm_tictoc("drawing");
-        sm->drawGUI(points, numValidPoints, r, NULL);
+//        sm->drawGUI(points, numValidPoints, r, NULL); //TODO:
         sm_tictoc("drawing");
     }
 
@@ -117,7 +116,6 @@ shutdown_handler(int unused __attribute__((unused)))
 int
 main(int argc __attribute__((unused)), char *argv[] __attribute__((unused)))
 {
-    sm_setupOpencvErrorHandler();
     signal(SIGINT, shutdown_handler);
     //initialize tictoc for threading
     sm_tictoc_init();

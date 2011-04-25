@@ -170,7 +170,7 @@ process_laser(const sm_planar_lidar_t * msg, void * user  __attribute__((unused)
     if (app->do_drawing && sm_get_time() - lastDrawTime > .2) {
         lastDrawTime = sm_get_time();
         sm_tictoc("drawing");
-        app->sm->drawGUI(points, numValidPoints, r, NULL);
+//        app->sm->drawGUI(points, numValidPoints, r, NULL); //TODO:
         sm_tictoc("drawing");
     }
 
