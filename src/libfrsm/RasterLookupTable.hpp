@@ -17,9 +17,22 @@
 #define RASTERLOOKUPTABLE_H_
 
 #include "ScanMatchingUtils.hpp"
+#include <stdint.h>
 #include <vector>
-
+#include <lcm/lcm.h>
+#include <bot_lcmgl_client/lcmgl.h>
 namespace scanmatch {
+
+typedef struct {
+  int kernel_size;
+  uint8_t * square_kernel;
+
+  float slope_step;
+  int * line_kernel_sizes;
+  uint8_t * line_kernels;
+  int line_kernel_stride;
+
+} draw_kernel_t;
 
 class RasterLookupTable {
 public:
@@ -36,7 +49,7 @@ public:
    *
    */
   RasterLookupTable(double x0i, double y0i, double x1i, double y1i, double mPP, int pixelDivisor = 1,
-      unsigned char initialValue = 0);
+      uint8_t initialValue = 0);
 
   /**
    * RasterLookupTable:
@@ -139,15 +152,21 @@ public:
    * renders the cost function for a line segment in the rectangular region around the segment
    */
   void
-  drawRectangle(double cx, double cy, double x_size, double y_size, double theta, unsigned char *lutSq, int lutSq_size,
+  drawRectangle(double cx, double cy, double x_size, double y_size, double theta, uint8_t *lutSq, int lutSq_size,
       int lutSq_first_zero, double lutSqRange);
 
   /**
    * makeLut:
    * create the lookup table used by the drawRectangle function
    */
-  static unsigned char *
+  static uint8_t *
   makeLut(int sz, double maxChiSq, double weight, int *lutSq_first_zero);
+
+  //TODO:document me
+  static void makeDrawingKernels(double sigma, draw_kernel_t * kern);
+  void drawKernel(int ix, int iy, const uint8_t*kernel, int kernel_width, int kernel_height);
+  void drawBlurredPoint(const smPoint *p, const draw_kernel_t * kern);
+  void drawBlurredLine(const smPoint *p1, const smPoint *p2, const draw_kernel_t * kern);
 
   /**
    * dumpTable:
@@ -155,28 +174,6 @@ public:
    */
   void
   dumpTable(const char * varName);
-
-  //    /**
-  //     * drawTable:
-  //     * render the table using openCV for visualization.
-  //     * returns a pointer to the rendered CvMat image
-  //     */
-  //    CvMat *
-  //    drawTable();
-  //
-  //    /**
-  //     * drawQuad:
-  //     * draw a symbol for the robot in the drawImg
-  //     */
-  //    void
-  //    drawRobot(CvMat * drawImg, ScanTransform transf, CvScalar color);
-  //    /**
-  //     * drawScan:
-  //     * draw the laser scan
-  //     */
-  //    void
-  //    drawScan(CvMat * drawImg, smPoint * points, unsigned numPoints,
-  //            ScanTransform transf, CvScalar color);
 
   /**
    * worldToTable:
@@ -239,21 +236,24 @@ public:
    * writeTable:
    * explicitly set the value of pixel ix,iy to v
    */
-  inline int writeTable(int ix, int iy, unsigned char v)
+  inline void writeTable(int ix, int iy, uint8_t v)
   {
-    return distdata[iy * width + ix] = v;
+    distdata[iy * width + ix] = v;
   }
 
   /**
    * writeTable:
    * explicitly set the value at position x,y (in meters)to v
    */
-  inline int writeTable(double x, double y, unsigned char v)
+  inline void writeTable(double x, double y, uint8_t v)
   {
     int ix, iy;
     worldToTable(x, y, &ix, &iy);
-    return writeTable(ix, iy, v);
+    writeTable(ix, iy, v);
   }
+
+  void publishMap(lcm_t * lcm, const char * channel, int64_t utime);
+  void drawMapLCMGL(bot_lcmgl_t * lcmgl);
 
   //extremum of the table in meters
   double x0, y0, x1, y1;
@@ -263,7 +263,7 @@ public:
   int width, height;
 
   //the actual occupancy grid data
-  unsigned char * distdata;
+  uint8_t * distdata;
 
   //hardcoded parameter
   static const int hitThresh = 100; // a hit is counted when the rlt score is >=

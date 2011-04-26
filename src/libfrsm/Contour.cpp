@@ -13,13 +13,13 @@
 using namespace std;
 using namespace scanmatch;
 
-ContourExtractor::ContourExtractor(sm_laser_type_t laser_type)
+ContourExtractor::ContourExtractor(sm_laser_type_t laser_type):
+    laserType(laser_type)
 {
   switch (laser_type) {
   case SM_HOKUYO_UTM:
     maxAdjacentDistance = 6;
     maxAdjacentAngularDistance = 3.1 * PI / 180; // radians
-    minPointsPerContour = 2;
     alwaysOkayDistance = 0.33; // 0.20;
     maxDistanceRatio = 2;
     maxFirstDistance = 1;
@@ -34,7 +34,6 @@ ContourExtractor::ContourExtractor(sm_laser_type_t laser_type)
     //These used to work well for a URG, haven't tested in a while.
     maxAdjacentDistance = 0.3;
     maxAdjacentAngularDistance = 10.0 * PI / 180; // radians
-    minPointsPerContour = 5;
     alwaysOkayDistance = 0.15; // 0.20;
     maxDistanceRatio = 100;
     maxFirstDistance = .2;
@@ -49,7 +48,6 @@ ContourExtractor::ContourExtractor(sm_laser_type_t laser_type)
     //THESE ARE WHAT ED USED... PRESUMABLY WITH A SICK
     maxAdjacentDistance = 5;
     maxAdjacentAngularDistance = 3.1 * PI / 180; // radians
-    minPointsPerContour = 1;
     alwaysOkayDistance = 0.33; // 0.20;
     maxDistanceRatio = 1.8;
     maxFirstDistance = 1;
@@ -229,17 +227,11 @@ void ContourExtractor::findContours(smPoint * points, unsigned numValidPoints, s
         printf("*Adding empty contour!?\n");
       }
 
-      if (c->points.size() >= minPointsPerContour) {
-        if (simplifyContourThresh > 0 && c->points.size() > 2) {
-          c->simplify(simplifyContourThresh);
-        }
-        if (c->points.size() > 1)
-          contours.push_back(c);
-        else
-          delete c;
+      if (simplifyContourThresh > 0 && c->points.size() > 2) {
+        c->simplify(simplifyContourThresh);
       }
-      else
-        delete c;
+      contours.push_back(c);
+
     }
   }
 
@@ -326,23 +318,21 @@ ContourExtractor::findClosestPoint(std::vector<PointRecord> &pointrecs, int pare
 
 void Contour::simplify(float tol)
 {
-  allPoints;
-  points.clear();
-
-  int n = allPoints.size();
+  int n = points.size();
   int pv; // misc counters
   points.reserve(n);
 
   // STAGE 1.  Vertex Reduction within tolerance of prior vertex cluster
-  points.push_back(allPoints[0]); // start at the beginning
-  for (int i = 1, pv = 0; i < n; i++) {
-    if (sm_dist(&allPoints[i], &allPoints[pv]) < tol)
+  int m = 1;// first point always kept
+  for (int i = 1, pv = 0; i < n - 1; i++) {
+    if (sm_dist(&points[i], &points[pv]) < tol)
       continue;
-    points.push_back(allPoints[i]);
-    pv = i;
+    points[m] = points[i];
+    pv = m++;
   }
-  if (pv < n - 1)
-    points.push_back(allPoints[n - 1]); // finish at the end
+  points[m++] = points[n - 1]; //make sure end is added
+  //m vertices in vertex reduced polyline
+  points.resize(m);
 
   // STAGE 2.  Douglas-Peucker polyline simplification
   vector<bool> mk(points.size(), false);
@@ -350,7 +340,7 @@ void Contour::simplify(float tol)
   simplifyDP(tol, points, 0, points.size() - 1, mk);
 
   // copy marked vertices to the output simplified polyline
-  int m = 0;
+  m = 0;
   for (int i = 0; i < points.size(); i++) {
     if (mk[i])
       points[m++] = points[i]; //m<=i;
@@ -389,7 +379,7 @@ void Contour::simplifyDP(float tol, std::vector<smPoint> &v, int j, int k, std::
   }
   if (max_dist_to_seg > tol) // error is worse than the tolerance
   {
-    // split the polyline at the farthest vertex from S
+    // split the polyline at the farthest vertex
     mk[maxi] = true; // mark v[maxi] for the simplified polyline
     // recursively simplify the two subpolylines at v[maxi]
     simplifyDP(tol, v, j, maxi, mk); // polyline v[j] to v[maxi]

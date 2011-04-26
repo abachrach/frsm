@@ -109,7 +109,6 @@ private:
    */
 public:
   std::vector<smPoint> points;
-  std::vector<smPoint> allPoints;
 };
 
 class ContourExtractor {
@@ -149,6 +148,11 @@ public:
    * Parameters used for finding contours!
    */
 
+  /*
+   * Which laser type are we set for
+   */
+  sm_laser_type_t laserType;
+
   /**
    * When adding a point to a contour, it's never okay to add a point farther
    * than this away.
@@ -159,8 +163,6 @@ public:
    * was this many degrees away (as measured by laser scanning angle).
    */
   double maxAdjacentAngularDistance; // radians
-  /** Discard contours that have fewer than this many points. * */
-  unsigned int minPointsPerContour;
   /**
    * It's always okay to add a point to a contour if it's less than this far
    * away. This rule overrides any other conditions.

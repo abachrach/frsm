@@ -10,13 +10,19 @@
 #include "ScanMatchingUtils.hpp"
 #include <vector>
 #include <algorithm>
+#include <iostream>
+#include <iomanip>
 
 #define DRAW_COST_SURFACE 0
 #if DRAW_COST_SURFACE
 //for debugging/visualization
-#include <bot/bot_core.h>
+#include <bot_lcmgl_client/lcmgl.h>
 #include <GL/gl.h>
 #endif
+
+#include <bot_lcmgl_client/lcmgl.h>
+#include <GL/gl.h>
+
 
 #define VAR_COMP_THRESH .80
 
@@ -34,7 +40,7 @@ RasterLookupTable::~RasterLookupTable()
 }
 
 RasterLookupTable::RasterLookupTable(double x0i, double y0i, double x1i, double y1i, double mPP, int pixelDivisor,
-    unsigned char initialValue)
+    uint8_t initialValue)
 {
   x0 = x0i;
   y0 = y0i;
@@ -59,8 +65,8 @@ RasterLookupTable::RasterLookupTable(double x0i, double y0i, double x1i, double 
     exit(1);
   }
 
-  int distdata_size = width * height * sizeof(unsigned char);
-  distdata = (unsigned char *) malloc(distdata_size);
+  int distdata_size = width * height * sizeof(uint8_t);
+  distdata = (uint8_t *) malloc(distdata_size);
   memset(distdata, initialValue, distdata_size);
 }
 
@@ -75,11 +81,11 @@ RasterLookupTable::RasterLookupTable(RasterLookupTable * hi_res, int downsampleF
 
   width = ceil((pixelsPerMeter) * (x1 - x0));
   height = ceil((pixelsPerMeter) * (y1 - y0));
-  assert(width==hi_res->width/downsampleFactor);
-  assert(height==hi_res->height/downsampleFactor);
+  assert(width == hi_res->width / downsampleFactor);
+  assert(height == hi_res->height / downsampleFactor);
 
-  int distdata_size = width * height * sizeof(unsigned char);
-  distdata = (unsigned char *) malloc(distdata_size);
+  int distdata_size = width * height * sizeof(uint8_t);
+  distdata = (uint8_t *) malloc(distdata_size);
   memset(distdata, 0, distdata_size);
 
   //TODO: Is this too slow?
@@ -98,7 +104,7 @@ RasterLookupTable::RasterLookupTable(RasterLookupTable * hi_res, int downsampleF
 }
 
 void RasterLookupTable::drawRectangle(double cx, double cy, double x_size, double y_size, double theta,
-    unsigned char * lutSq, int lutSq_size, int lutSq_first_zero, double lutSqRange)
+    uint8_t * lutSq, int lutSq_size, int lutSq_first_zero, double lutSqRange)
 {
   double ux = cos(theta), uy = sin(theta);
 
@@ -165,10 +171,10 @@ void RasterLookupTable::drawRectangle(double cx, double cy, double x_size, doubl
  *
  * Weight should be [0,1].
  */
-unsigned char *
+uint8_t *
 RasterLookupTable::makeLut(int sz, double maxChiSq, double weight, int *lutSq_first_zero)
 {
-  unsigned char * lutSq = (unsigned char *) malloc(sz * sizeof(char));
+  uint8_t * lutSq = (uint8_t *) malloc(sz * sizeof(char));
   bool set_lutSq_first_zero = false;
   for (int i = 0; i < sz; i++) {
     int v = (int) round(255.0 * weight * exp(-maxChiSq * i / (sz - 1)));
@@ -178,7 +184,7 @@ RasterLookupTable::makeLut(int sz, double maxChiSq, double weight, int *lutSq_fi
     }
     assert(v >= 0);
     assert(v <= 255);
-    lutSq[i] = (unsigned char) v;
+    lutSq[i] = (uint8_t) v;
   }
   if (!set_lutSq_first_zero) {
     set_lutSq_first_zero = true;
@@ -187,6 +193,178 @@ RasterLookupTable::makeLut(int sz, double maxChiSq, double weight, int *lutSq_fi
 
   return lutSq;
 }
+
+void RasterLookupTable::drawKernel(int ix, int iy, const uint8_t*kernel, int kernel_width, int kernel_height)
+{
+  //TODO: compare against opencv/IPP?
+  ix -= kernel_width / 2;
+  iy -= kernel_height / 2;
+  for (int j = 0; j < kernel_height; j++) {
+    int table_iy = iy + j;
+    int krow = j * kernel_width;
+    for (int i = 0; i < kernel_width; i++) {
+      int table_ix = ix + i;
+      if (readTable(table_ix, table_iy) < kernel[krow + i])
+        writeTable(table_ix, table_iy, kernel[krow + i]);
+    }
+  }
+
+}
+
+void RasterLookupTable::drawBlurredPoint(const smPoint * p, const draw_kernel_t * kern)
+{
+  int ix, iy;
+  worldToTable(p->x, p->y, &ix, &iy);
+  drawKernel(ix, iy, kern->square_kernel, kern->kernel_size, kern->kernel_size);
+
+}
+void RasterLookupTable::drawBlurredLine(const smPoint * p1, const smPoint * p2, const draw_kernel_t * kern)
+{
+  smPoint d = { p2->x - p1->x, p2->y - p1->y };
+  if (d.x == 0 && d.y == 0) {
+    return;
+  }
+
+  double slope = atan2(d.y, d.x);
+  int kernel_width = -1;
+  int kernel_height = -1;
+  uint8_t * kernel_pointer;
+  if (fabs(d.x) > fabs(d.y)) { //vertical kernel
+    int slope_ind = kern->slope_step * fabs(slope);
+    kernel_width = 1;
+    kernel_height = kern->line_kernel_sizes[slope_ind];
+    kernel_pointer = kern->line_kernels + (slope_ind * kern->line_kernel_stride);
+  }
+  else {
+    int slope_ind = kern->slope_step * fabs(sm_angle_subtract(M_PI / 2.0, slope));
+    kernel_width = kern->line_kernel_sizes[slope_ind];
+    kernel_height = 1;
+    kernel_pointer = kern->line_kernels + (slope_ind * kern->line_kernel_stride);
+  }
+
+  int start[2], end[2];
+  worldToTable(p1->x, p1->y, &start[0], &start[1]);
+  worldToTable(p2->x, p2->y, &end[0], &end[1]);
+
+  int curr[2] = { start[0], start[1] };
+
+  // normalize
+  int xstep = 1;
+  int ystep = 1;
+  int dx = end[0] - start[0];
+  if (dx < 0) {
+    dx = -dx;
+    xstep = -1;
+  }
+  int dy = end[1] - start[1];
+  if (dy < 0) {
+    dy = -dy;
+    ystep = -1;
+  }
+
+  if (dx == 0) {
+    // vertical
+    for (int i = 0; i <= dy; i++) {
+      int wasHit = curr[0] == end[0] && curr[1] == end[1];
+      drawKernel(curr[0], curr[1], kernel_pointer, kernel_width, kernel_height);
+      curr[1] = curr[1] + ystep;
+    }
+  }
+  else if (dy == 0) {
+    // horizontal
+    for (int i = 0; i <= dx; i++) {
+      int wasHit = curr[0] == end[0] && curr[1] == end[1];
+      drawKernel(curr[0], curr[1], kernel_pointer, kernel_width, kernel_height);
+      curr[0] += xstep;
+    }
+  }
+  else if (dx > dy) {
+    // bresenham, horizontal slope
+    int n = dx;
+    dy += dy;
+    int e = dy - dx;
+    dx += dx;
+
+    for (int i = 0; i <= n; i++) {
+      int wasHit = curr[0] == end[0] && curr[1] == end[1];
+      drawKernel(curr[0], curr[1], kernel_pointer, kernel_width, kernel_height);
+      if (e >= 0) {
+        curr[1] += ystep;
+        e -= dx;
+      }
+      e += dy;
+      curr[0] += xstep;
+    }
+  }
+  else {
+    // bresenham, vertical slope
+    int n = dy;
+    dx += dx;
+    int e = dx - dy;
+    dy += dy;
+
+    for (int i = 0; i <= n; i++) {
+      int wasHit = curr[0] == end[0] && curr[1] == end[1];
+      drawKernel(curr[0], curr[1], kernel_pointer, kernel_width, kernel_height);
+      if (e >= 0) {
+        curr[0] += xstep;
+        e -= dy;
+      }
+      e += dx;
+      curr[1] += ystep;
+    }
+  }
+
+}
+
+static int computeKernelSize(double sigma, double slope, float cutoff)
+{
+  unsigned int sz = 0;
+  float val = 255;
+  while (val > cutoff) {
+    sz++;
+    double d = sz * cos(slope);
+    val = round(255.0 * exp(-d / sigma));
+  }
+  return 2 * sz + 1;
+}
+
+void RasterLookupTable::makeDrawingKernels(double sigma, draw_kernel_t * kern)
+{
+  //make the square kernel for the endpoints
+  kern->kernel_size = computeKernelSize(sigma, 0, 32);
+  kern->square_kernel = (uint8_t *) calloc(sm_sq(kern->kernel_size), sizeof(uint8_t));
+  uint8_t * square_kernel_p = kern->square_kernel;
+  for (int i = 0; i < kern->kernel_size; i++) {
+    for (int j = 0; j < kern->kernel_size; j++) {
+      int center = kern->kernel_size / 2;
+      double x = i - center;
+      double y = j - center;
+      double d = sqrt(sm_sq(x) + sm_sq(y));
+      int val = round(255.0 * exp(-d / sigma));
+      square_kernel_p[j * kern->kernel_size + i] = (uint8_t) val;
+    }
+  }
+
+  //make the line kernels
+  kern->line_kernel_stride = computeKernelSize(sigma, M_PI / 4.0, 32);
+  kern->slope_step = M_PI / 180.0;
+  int num_line_kernels = (45.0 * M_PI / 180.0) / kern->slope_step;
+  kern->line_kernels = (uint8_t*) calloc(kern->line_kernel_stride * num_line_kernels, sizeof(uint8_t));
+  kern->line_kernel_sizes = (int *) calloc(num_line_kernels, sizeof(int));
+  for (int sl = 0; sl < num_line_kernels; sl++) {
+    double slope = kern->slope_step * sl;
+    kern->line_kernel_sizes[sl] = computeKernelSize(sigma, slope, 32);
+    uint8_t * line_kernel_p = kern->line_kernels + (sl * kern->line_kernel_stride);
+    for (int i = 0; i < kern ->line_kernel_sizes[sl]; i++) {
+      int center = kern ->line_kernel_sizes[sl] / 2;
+      double d = fabs(i - center) * cos(slope);
+      int val = round(255.0 * exp(-d / sigma));
+      line_kernel_p[i] = (uint8_t) val;
+    }
+  }
+}
+
 /*
  * compute the number of hits seen with this scanTransform
  */
@@ -272,7 +450,7 @@ ScanTransform RasterLookupTable::evaluate2D(const smPoint * points, const unsign
 
 #ifdef USE_IPP
   int scoresStep = ixdim * sizeof(float);
-  int dataStep = width * sizeof(unsigned char);
+  int dataStep = width * sizeof(uint8_t);
 #endif
   //zero out the scores array!
   memset(scores, 0, ixdim * iydim * sizeof(float));
@@ -313,7 +491,7 @@ ScanTransform RasterLookupTable::evaluate2D(const smPoint * points, const unsign
 #ifdef USE_IPP
     //ipp
     IppiSize roiSize = {bx1 - bx0 + 1, by1 - by0 + 1}; //+1 due to <= below
-    unsigned char * pSrc = distdata+ width*by0+bx0;
+    uint8_t * pSrc = distdata+ width*by0+bx0;
     float * pScoreAcum = scores + (by0 - iy0)*ixdim + (bx0 - ix0); //
     //    FILE * f = fopen("tmpDump.m","w");
     //    fprintf(f,"pidx=%d\n",pidx);
@@ -340,7 +518,7 @@ ScanTransform RasterLookupTable::evaluate2D(const smPoint * points, const unsign
     //    fprintf(f,"roiSize.height=%d\n",roiSize.height);
     //    fprintf(f,"src = [\n");
     //    for (int i = 0;i<roiSize.height;i++) {
-    //      unsigned char * p = pSrc+ i*dataStep;
+    //      uint8_t * p = pSrc+ i*dataStep;
     //      for (int j=0;j<roiSize.width;j++) {
     //        fprintf(f,"%d ",*p++);
     //      }
@@ -558,7 +736,7 @@ ScanTransform RasterLookupTable::evaluate3D_multiRes(RasterLookupTable * rlt_hig
         ixdim_high_res, iydim_high_res, scores_high_res, &xInd, &yInd);
 
     //add these "samples" to the covariance computation
-    assert(cov_samples_ind== cov_samples.size());
+    assert(cov_samples_ind == cov_samples.size());
     cov_samples.resize(cov_samples.size() + ixdim_high_res * iydim_high_res);
     double wx, wy, p, score;
     for (int sy = 0; sy < iydim_high_res; sy++) {
@@ -944,11 +1122,11 @@ ScanTransform RasterLookupTable::evaluate3D(const smPoint * points, const unsign
   //      //compute cost map statistics so we can extract a covariance matrix
   //
   //      //xy covariance
-  //      unsigned char * costMap = (unsigned char *) calloc(ixdim * iydim, sizeof(unsigned char));
+  //      uint8_t * costMap = (uint8_t *) calloc(ixdim * iydim, sizeof(uint8_t));
   //      for (int i = 0; i < iydim; i++) {
   //        for (int j = 0; j < ixdim; j++) {
   //          if (allScores[bestThetaInd][i * ixdim + j] > .97 * bestResult.score)
-  //            costMap[i * ixdim + j] = (unsigned char) ((255 * allScores[bestThetaInd][i * ixdim + j]) / bestResult.score); //normalize this to be 0-255
+  //            costMap[i * ixdim + j] = (uint8_t) ((255 * allScores[bestThetaInd][i * ixdim + j]) / bestResult.score); //normalize this to be 0-255
   //        }
   //      }
   //      CvMoments moments;
@@ -983,7 +1161,7 @@ ScanTransform RasterLookupTable::evaluate3D(const smPoint * points, const unsign
   //          - bestThetaScores[r]) * 1.0 / (r - l);
   //      bestResult.sigma[8] = 100.0 / slope* .0001;
   //
-  //      //  unsigned char * tmap = (unsigned char *) calloc(itdim, sizeof(unsigned char));
+  //      //  uint8_t * tmap = (uint8_t *) calloc(itdim, sizeof(uint8_t));
   //      //  for (int j = 0; j < itdim; j++) {
   //      //    if (bestThetaScores[j] > .97 * bestResult.score)
   //      //      tmap[j] = (255 * bestThetaScores[j]) / bestResult.score; //normalize this to be 0-255
@@ -1148,3 +1326,65 @@ ScanTransform RasterLookupTable::evaluate3D(const smPoint * points, const unsign
 //    //  drawRobot(drawImg,&correctedTransf,CV_RGB(0,0,255));
 //
 //}
+
+
+//TODO: This should really be using an occ_map pixelmap
+//TODO: lcmgl probably makes more sense
+#include <lcmtypes/sm_pixel_map_t.h>
+#include <zlib.h>
+void RasterLookupTable::publishMap(lcm_t * lcm, const char * channel, int64_t utime)
+{
+  sm_pixel_map_t * msg = (sm_pixel_map_t*) calloc(1, sizeof(sm_pixel_map_t));
+  msg->xy0[0] = x0;
+  msg->xy0[1] = y0;
+  msg->xy1[0] = x1;
+  msg->xy1[1] = y1;
+  msg->mpp = metersPerPixel;
+  msg->dimensions[0] = width;
+  msg->dimensions[1] = height;
+
+  int num_cells = width * height;
+  uLong uncompressed_size = num_cells * sizeof(uint8_t);
+
+  uLong compress_buf_size = uncompressed_size * 1.01 + 12; //with extra space for zlib
+  msg->mapData = (uint8_t *) realloc(msg->mapData, compress_buf_size);
+  int compress_return = compress2((Bytef *) msg->mapData, &compress_buf_size, (Bytef *) distdata, uncompressed_size,
+      Z_BEST_SPEED);
+  if (compress_return != Z_OK) {
+    fprintf(stderr, "ERROR: Could not compress voxel map!\n");
+    exit(1);
+  }
+  //    fprintf(stderr, "uncompressed_size=%ld compressed_size=%ld\n", uncompressed_size, compress_buf_size);
+  msg->datasize = compress_buf_size;
+  msg->compressed = 1;
+
+  //set the data_type
+  msg->data_type = SM_PIXEL_MAP_T_TYPE_UINT8;
+
+  msg->utime = utime;
+
+  sm_pixel_map_t_publish(lcm,channel,msg);
+  sm_pixel_map_t_destroy(msg);
+}
+
+void RasterLookupTable::drawMapLCMGL(bot_lcmgl_t * lcmgl){
+
+  int texid = bot_lcmgl_texture2d(lcmgl, distdata,
+       width, height, width*sizeof(uint8_t),
+       BOT_LCMGL_LUMINANCE, BOT_LCMGL_COMPRESS_NONE);
+
+  bot_lcmgl_enable(lcmgl,GL_BLEND);
+  bot_lcmgl_enable(lcmgl,GL_DEPTH_TEST);
+
+  bot_lcmgl_texture_draw_quad(lcmgl, texid,
+      x0, y0, 0,
+      x0, y1, 0,
+      x1, y1, 0,
+      x1, y0, 0);
+
+  bot_lcmgl_disable(lcmgl,GL_BLEND);
+  bot_lcmgl_disable(lcmgl,GL_DEPTH_TEST);
+
+
+}
+

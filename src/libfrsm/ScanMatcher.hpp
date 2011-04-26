@@ -25,7 +25,6 @@
 #include <values.h>
 
 namespace scanmatch {
-
 /*
  * matchingMode indicates which type of matching should be applied
  * SM_GRID_ONLY   - don't run coordinate ascent
@@ -235,7 +234,7 @@ private:
   void
   rebuildRaster_blur(RasterLookupTable ** rasterTable);
   void
-  drawBlurredScan(RasterLookupTable ** rasterTable, Scan * s);
+  drawBlurredScan(RasterLookupTable * rt, Scan * s);
   void
   rebuildRaster_blurLine(RasterLookupTable ** rasterTable);
   /**
@@ -349,18 +348,21 @@ private:
   RasterLookupTable *rlt_low_res;
   RasterLookupTable *rltTmp_low_res;
 
-  //stuff for creating raster table using line drawing primitive
-  unsigned int kernelSize;
-  unsigned char * squareKernel;
-  unsigned char * lineKernel;
-  unsigned char * diagLineKernel;
+  ContourExtractor * contour_extractor;
+
+  //stuff for creating raster table using my  line drawing primitive
+  draw_kernel_t draw_kernels;
+
+  //for creating the raster table using olson's method
+  int lutSq_first_zero;
+  unsigned char * lutSq;
 
   //threading stuff
+  friend void * thread_wrapper_func(void * user);
   int killThread;
   int cancelAdd;
   pthread_t rebuilder;
-  static void *
-  rebuildThreadFunc(ScanMatcher*parent);
+  void rebuildThreadFunc();
   std::list<Scan *> scansToBeProcessed;
 
   pthread_mutex_t scans_mutex; //this ordering must be obeyed... lock scans first!
@@ -369,6 +371,11 @@ private:
   pthread_cond_t toBeProcessed_cv;
 
 };
+
+/*
+ * Declare wrapper function so friending works :-/
+ */
+void * thread_wrapper_func(void * user);
 
 }
 

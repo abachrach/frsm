@@ -7,15 +7,26 @@
 #include "ScanMatchingUtils.hpp"
 #include <signal.h>
 #include <assert.h>
+#include <bot_core/bot_core.h>
+#include <bot_lcmgl_client/lcmgl.h>
 
 using namespace std;
 using namespace scanmatch;
+
+void * scanmatch::thread_wrapper_func(void * user)
+{
+  ScanMatcher*parent = (ScanMatcher*) user;
+  fprintf(stderr, "starting rebuild thread\n");
+  parent->rebuildThreadFunc();
+  return NULL;
+}
 
 ScanMatcher::ScanMatcher(double metersPerPixel_, double thetaResolution_, int useMultires_, bool useThreads_,
     bool verbose_) :
 
   metersPerPixel(metersPerPixel_), thetaResolution(thetaResolution_), useMultiRes(useMultires_), verbose(verbose_),
-      rlt(NULL), rltTmp(NULL), rlt_low_res(NULL), rltTmp_low_res(NULL), useThreads(useThreads_), killThread(1)
+      contour_extractor(NULL), rlt(NULL), rltTmp(NULL), rlt_low_res(NULL), rltTmp_low_res(NULL),
+      useThreads(useThreads_), killThread(1)
 {
 
   downsampleFactor = (1 << useMultiRes);
@@ -23,9 +34,10 @@ ScanMatcher::ScanMatcher(double metersPerPixel_, double thetaResolution_, int us
   //line drawing kernel stuff
   double sigma = .0675 / metersPerPixel; //sigma is in pixels
   //  sigma = 21;
-  //TODO: reimpliment me!
-  //  kernelSize = sm_createGaussianKernels(sigma, &squareKernel, &lineKernel);
-  diagLineKernel = (unsigned char *) calloc(kernelSize * 2, sizeof(unsigned char)); //space for tmp kernel (double the line kernel size
+  RasterLookupTable::makeDrawingKernels(sigma, &draw_kernels);
+
+  lutSq_first_zero = -1;
+  lutSq = NULL;
 
   //set reasonable defaults for successive matching
   memset(&currentPose, 0, sizeof(currentPose));
@@ -50,8 +62,7 @@ ScanMatcher::ScanMatcher(double metersPerPixel_, double thetaResolution_, int us
     pthread_cond_init(&toBeProcessed_cv, NULL);
 
     //create rebuilder thread
-    pthread_create(&rebuilder, 0, (void *
-    (*)(void *)) rebuildThreadFunc, (void *) this);
+    pthread_create(&rebuilder, 0, thread_wrapper_func, (void *) this);
   }
 }
 
@@ -96,6 +107,9 @@ void ScanMatcher::initSuccessiveMatchingParams(unsigned int maxNumScans_, double
 ScanMatcher::~ScanMatcher()
 {
   clearScans(true);
+
+  //TODO: delete kernels/LUT
+
   if (useThreads) {
     //aquire all locks so we can destroy them
     pthread_mutex_lock(&scans_mutex);
@@ -163,34 +177,33 @@ void ScanMatcher::clearScans(bool deleteScans)
   }
 }
 
-void *
-ScanMatcher::rebuildThreadFunc(ScanMatcher*parent)
+void ScanMatcher::rebuildThreadFunc()
 {
-  if (!parent->useThreads) {
+  if (!useThreads) {
     fprintf(stderr, "ERROR, threading is disabled! this shouldn't be being called\n");
     exit(1);
   }
 
   while (true) {
-    pthread_mutex_lock(&parent->toBeProcessed_mutex);
-    while (parent->scansToBeProcessed.empty()) {
-      pthread_cond_wait(&parent->toBeProcessed_cv, &parent->toBeProcessed_mutex);
-      if (parent->killThread) {
-        pthread_mutex_unlock(&parent->toBeProcessed_mutex);
-        parent->killThread = -1;
+    pthread_mutex_lock(&toBeProcessed_mutex);
+    while (scansToBeProcessed.empty()) {
+      pthread_cond_wait(&toBeProcessed_cv, &toBeProcessed_mutex);
+      if (killThread) {
+        pthread_mutex_unlock(&toBeProcessed_mutex);
+        killThread = -1;
         fprintf(stderr, "rebuild thread exiting\n");
-        return 0;
+        return;
       }
     }
     std::list<Scan *> scansBeingProcessed;
     //there are scans to be processed... lets take care of business
     //first swap out the lists so we can let go of the lock...
-    scansBeingProcessed = parent->scansToBeProcessed;
-    parent->scansToBeProcessed.clear();
-    pthread_mutex_unlock(&parent->toBeProcessed_mutex);
+    scansBeingProcessed = scansToBeProcessed;
+    scansToBeProcessed.clear();
+    pthread_mutex_unlock(&toBeProcessed_mutex);
 
     if (scansBeingProcessed.size() > 1) {
-      if (parent->verbose) {
+      if (verbose) {
         fprintf(stderr, "there are %zu scans to be processed, discarding all but most recent\n",
             scansBeingProcessed.size());
       }
@@ -200,107 +213,86 @@ ScanMatcher::rebuildThreadFunc(ScanMatcher*parent)
       }
     }
 
-    if (scansBeingProcessed.size() > parent->maxNumScans) {
+    if (scansBeingProcessed.size() > maxNumScans) {
       fprintf(stderr, "Scan Matcher is way behind!, there are %zu scans to be added\n", scansBeingProcessed.size());
-      while (scansBeingProcessed.size() > parent->maxNumScans) {
+      while (scansBeingProcessed.size() > maxNumScans) {
         delete scansBeingProcessed.front();
         scansBeingProcessed.pop_front();
       }
     }
 
-    pthread_mutex_lock(&parent->scans_mutex);
+    pthread_mutex_lock(&scans_mutex);
     //make space for new scans
-    while (parent->numScans() + scansBeingProcessed.size() > parent->maxNumScans) {
-      delete parent->scans.front();
-      parent->scans.pop_front();
+    while (numScans() + scansBeingProcessed.size() > maxNumScans) {
+      delete scans.front();
+      scans.pop_front();
     }
 
     list<Scan *>::iterator it;
-    it = parent->scans.end(); //save the current end for drawing the new scans
+    it = scans.end(); //save the current end for drawing the new scans
     while (!scansBeingProcessed.empty()) {
       Scan * s = scansBeingProcessed.front();
       sm_tictoc("findContours");
-      ContourExtractor * cextractor = new ContourExtractor(s->laser_type);
-      cextractor->findContours(s->ppoints, s->numPoints, s->contours);
-      delete cextractor; //TODO: probably a cleaner way
+
+      if (contour_extractor != NULL && contour_extractor->laserType != s->laser_type) {
+        delete contour_extractor;
+        contour_extractor = NULL;
+      }
+      if (contour_extractor == NULL)
+        contour_extractor = new ContourExtractor(s->laser_type);
+      contour_extractor->findContours(s->ppoints, s->numPoints, s->contours);
+
       sm_tictoc("findContours");
       //            s->drawContours(1000,100);
 
-      parent->scans.push_back(s);
+      scans.push_back(s);
       scansBeingProcessed.pop_front();
     }
 
-    //    //draw in the new scans onto the old rlt while we're waiting for the full rebuild.
-    //    pthread_mutex_lock(&parent->rlt_mutex);
-    //    sm_tictoc("tempDraw");
-    //    while (++it != parent->scans.end()) {
-    //      Scan * s = *it;
-    //      //draw the new scans on the old raster table using the blurred lines for now.
-    //      parent->drawBlurredScan(&parent->rlt, s);
-    //    }
-    //    sm_tictoc("tempDraw");
-    //    pthread_mutex_unlock(&parent->rlt_mutex);
-
-
-    //    sm_tictoc("rebuildRaster_olson");
-    //    parent->rebuildRaster_olson(&parent->rltTmp); //rebuild the raster in the tmp
-    //    sm_tictoc("rebuildRaster_olson");
-
-    //    sm_tictoc("rebuildRaster_blur");
-    //    parent->rebuildRaster_blur(&parent->rltTmp); //rebuild the raster in the tmp
-    //    sm_tictoc("rebuildRaster_blur");
-
-    //        //this is works really well now :-)
-    //        sm_tictoc("rebuildRaster_blurLine");
-    //        parent->rebuildRaster_blurLine(&parent->rltTmp); //rebuild the raster in the tmp
-    //        sm_tictoc("rebuildRaster_blurLine");
-
     sm_tictoc("rebuildRaster");
-    parent->rebuildRaster(&parent->rltTmp); //rebuild the raster in the tmp
+    rebuildRaster(&rltTmp); //rebuild the raster in the tmp
     sm_tictoc("rebuildRaster");
 
-    if (parent->useMultiRes > 0) {
+    if (useMultiRes > 0) {
       sm_tictoc("rebuild_lowRes");
-      parent->rltTmp_low_res = new RasterLookupTable(parent->rltTmp, parent->downsampleFactor);
+      rltTmp_low_res = new RasterLookupTable(rltTmp, downsampleFactor);
       sm_tictoc("rebuild_lowRes");
     }
 
     //swap rltTmp with rlt to put it in use
-    pthread_mutex_lock(&parent->rlt_mutex);
-    if (parent->cancelAdd) {
-      if (parent->verbose)
+    pthread_mutex_lock(&rlt_mutex);
+    if (cancelAdd) {
+      if (verbose)
         fprintf(stderr, "Scan add was canceled!\n");
-      delete parent->rltTmp;
-      parent->rltTmp = NULL;
-      if (parent->useMultiRes > 0) {
-        delete parent->rltTmp_low_res;
-        parent->rltTmp_low_res = NULL;
+      delete rltTmp;
+      rltTmp = NULL;
+      if (useMultiRes > 0) {
+        delete rltTmp_low_res;
+        rltTmp_low_res = NULL;
       }
     }
     else {
-      delete parent->rlt;
-      parent->rlt = parent->rltTmp;
-      parent->rltTmp = NULL;
+      delete rlt;
+      rlt = rltTmp;
+      rltTmp = NULL;
 
-      if (parent->useMultiRes > 0) {
-        delete parent->rlt_low_res;
-        parent->rlt_low_res = parent->rltTmp_low_res;
-        parent->rltTmp_low_res = NULL;
+      if (useMultiRes > 0) {
+        delete rlt_low_res;
+        rlt_low_res = rltTmp_low_res;
+        rltTmp_low_res = NULL;
       }
-      if (parent->verbose)
+      if (verbose)
         fprintf(stderr, "rlt swapped!\n");
     }
-    pthread_mutex_unlock(&parent->rlt_mutex);
-    pthread_mutex_unlock(&parent->scans_mutex);
+    pthread_mutex_unlock(&rlt_mutex);
+    pthread_mutex_unlock(&scans_mutex);
 
     //    //clear out scans that got added in the interim
-    //    pthread_mutex_lock(&parent->toBeProcessed_mutex);
-    //    parent->scansToBeProcessed.clear();
-    //    pthread_mutex_unlock(&parent->toBeProcessed_mutex);
+    //    pthread_mutex_lock(&toBeProcessed_mutex);
+    //    scansToBeProcessed.clear();
+    //    pthread_mutex_unlock(&toBeProcessed_mutex);
 
   }
-
-  return NULL;
 
 }
 
@@ -360,8 +352,9 @@ void ScanMatcher::rebuildRaster_olson(RasterLookupTable ** rasterTable)
   // (where we jump back and forth between two slightly
   // misalgined scans.)
 
-  static int lutSq_first_zero = -1;
-  static unsigned char * lutSq = RasterLookupTable::makeLut(512, 10, 1.0, &lutSq_first_zero);
+  //initialize the lookup table if it hasn't ben already done
+  if (lutSq_first_zero < 0 || lutSq == NULL)
+    lutSq = RasterLookupTable::makeLut(512, 10, 1.0, &lutSq_first_zero);
   double lutSqRange = pow(0.25, 2);
 
   // draw each scan.
@@ -384,29 +377,26 @@ void ScanMatcher::rebuildRaster_olson(RasterLookupTable ** rasterTable)
 
   //  free(lutSq);
 
-  //      rt->dumpTable("rt");
-  //    rt->drawTable();
+
   if (*rasterTable != NULL)
     delete *rasterTable;
   *rasterTable = rt;
   return;
 }
 
-void ScanMatcher::drawBlurredScan(RasterLookupTable ** rasterTable, Scan * s)
+void ScanMatcher::drawBlurredScan(RasterLookupTable * rt, Scan * s)
 {
-  RasterLookupTable * rt = *rasterTable;
   for (unsigned cidx = 0; cidx < s->contours.size(); cidx++) {
-    for (unsigned i = 0; i + 1 < s->contours[cidx]->points.size(); i++) {
-      smPoint p0 = s->contours[cidx]->points[i];
-      smPoint p1 = s->contours[cidx]->points[i + 1];
-
-      //TODO: Reimpliment me
-      //      CvPoint cv_p0;
-      //      CvPoint cv_p1;
-      //      rt->worldToTable(p0.x, p0.y, &cv_p0.x, &cv_p0.y);
-      //      rt->worldToTable(p1.x, p1.y, &cv_p1.x, &cv_p1.y);
-      //      sm_drawLine_lineKernel(&rt->distim, cv_p0, cv_p1, kernelSize, squareKernel, lineKernel, diagLineKernel);
+    if (s->contours[cidx]->points.size() >= 2) {
+      for (unsigned i = 0; i < s->contours[cidx]->points.size() - 1; i++) {
+        const smPoint &p0 = s->contours[cidx]->points[i];
+        const smPoint &p1 = s->contours[cidx]->points[i + 1];
+        rt->drawBlurredPoint(&p0, &draw_kernels);
+        rt->drawBlurredLine(&p0, &p1, &draw_kernels);
+      }
     }
+    //draw the last point in the contour
+    rt->drawBlurredPoint(&s->contours[cidx]->points.back(), &draw_kernels);
   }
 }
 
@@ -416,12 +406,7 @@ void ScanMatcher::rebuildRaster_blurLine(RasterLookupTable ** rasterTable)
   double miny, maxy;
   computeBounds(&minx, &miny, &maxx, &maxy);
 
-  // create the LUT, with a bit more space than we currently
-  // think we'll need (the thought being that we could add new
-  // scans without having to rebuild the whole damn thing
   double margin = fmax(.5, 0.1 * fmax(maxx - minx, maxy - miny));
-
-  //  fprintf(stderr,"table minx=%.3f, maxx=%.3f, miny=%.3f, maxy=%.3f, margin=%f\n",minx,maxx,miny,maxy,margin);
 
   sm_tictoc("rebuild_alloc");
   RasterLookupTable * rt = new RasterLookupTable(minx - margin, miny - margin, maxx + margin, maxy + margin,
@@ -430,36 +415,19 @@ void ScanMatcher::rebuildRaster_blurLine(RasterLookupTable ** rasterTable)
 
   sm_tictoc("drawBlurLines");
   // draw each scan.
-  //  fprintf(stderr,"drawing lines....  ");
-
-  //  FILE * f = fopen("scanToDraw.m","w");
-  //  fprintf(f, "s =[\n");
   list<Scan *>::iterator it;
   for (it = scans.begin(); it != scans.end(); ++it) {
     Scan * s = *it;
-    for (unsigned cidx = 0; cidx < s->contours.size(); cidx++) {
-      for (unsigned i = 0; i + 1 < s->contours[cidx]->points.size(); i++) {
-        smPoint p0 = s->contours[cidx]->points[i];
-        smPoint p1 = s->contours[cidx]->points[i + 1];
-
-        //        //TODO:Reimpliment me
-        //        CvPoint cv_p0;
-        //        CvPoint cv_p1;
-        //        rt->worldToTable(p0.x, p0.y, &cv_p0.x, &cv_p0.y);
-        //        rt->worldToTable(p1.x, p1.y, &cv_p1.x, &cv_p1.y);
-        //        //        fprintf(f, "%d %d %d %d \n", cv_p0.x+1, cv_p0.y+1, cv_p1.x+1, cv_p1.y+1); //+1 for matlab indexing
-        //        sm_drawLine_lineKernel(&rt->distim, cv_p0, cv_p1, kernelSize, squareKernel, lineKernel, diagLineKernel);
-      }
-    }
+    drawBlurredScan(rt, s);
   }
-  //  fprintf(f, "];\n");
-  //  fclose(f);
   sm_tictoc("drawBlurLines");
-  //  rt->dumpTable("rt");
-  //  fprintf(stderr,"done! \n");
 
+  static lcm_t * lcm = bot_lcm_get_global(NULL);
+  static bot_lcmgl_t * lcmgl = bot_lcmgl_init(lcm, "FRSM-MAP");
 
-  //  rt->drawTable();
+  rt->publishMap(bot_lcm_get_global(NULL), "SLAM_MAP", sm_get_utime());
+  rt->drawMapLCMGL(lcmgl);
+  bot_lcmgl_switch_buffer(lcmgl);
 
   if (*rasterTable != NULL)
     delete *rasterTable;
@@ -662,9 +630,13 @@ void ScanMatcher::addScan(Scan *s, bool rebuildNow)
       Scan * scan = *it;
       if (scan->contours.size() == 0) {
         sm_tictoc("findContours");
-        ContourExtractor * cextractor = new ContourExtractor(scan->laser_type);
-        cextractor->findContours(scan->ppoints, scan->numPoints, scan->contours);
-        delete cextractor; //TODO: probably a cleaner way
+        if (contour_extractor == NULL && contour_extractor->laserType != s->laser_type) {
+          delete contour_extractor;
+          contour_extractor = NULL;
+        }
+        if (contour_extractor == NULL)
+          contour_extractor = new ContourExtractor(s->laser_type);
+        contour_extractor->findContours(scan->ppoints, scan->numPoints, scan->contours);
         sm_tictoc("findContours"); //      s->drawContours();
       }
     }
