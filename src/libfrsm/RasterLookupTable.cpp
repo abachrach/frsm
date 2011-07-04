@@ -20,14 +20,10 @@
 #include <GL/gl.h>
 #endif
 
-#include <bot_lcmgl_client/lcmgl.h>
-#include <GL/gl.h>
-
-
 #define VAR_COMP_THRESH .80
 
 using namespace std;
-using namespace scanmatch;
+namespace scanmatch {
 
 typedef struct {
   double x[3];
@@ -162,38 +158,6 @@ void RasterLookupTable::drawRectangle(double cx, double cy, double x_size, doubl
 
 }
 
-/**
- * Make a lookup table with 'sz' entries. The lookup table will have an
- * exponential fall-off with maximum value 255.
- *
- * lut[0] = weight*255 ... lut[i] = weight*255*e^{-i*alpha} ... lut[sz] =
- * weight*255*e^{-maxChiSq}
- *
- * Weight should be [0,1].
- */
-uint8_t *
-RasterLookupTable::makeLut(int sz, double maxChiSq, double weight, int *lutSq_first_zero)
-{
-  uint8_t * lutSq = (uint8_t *) malloc(sz * sizeof(char));
-  bool set_lutSq_first_zero = false;
-  for (int i = 0; i < sz; i++) {
-    int v = (int) round(255.0 * weight * exp(-maxChiSq * i / (sz - 1)));
-    if (v == 0 && !set_lutSq_first_zero) {
-      set_lutSq_first_zero = true;
-      *lutSq_first_zero = i;
-    }
-    assert(v >= 0);
-    assert(v <= 255);
-    lutSq[i] = (uint8_t) v;
-  }
-  if (!set_lutSq_first_zero) {
-    set_lutSq_first_zero = true;
-    *lutSq_first_zero = sz;
-  }
-
-  return lutSq;
-}
-
 void RasterLookupTable::drawKernel(int ix, int iy, const uint8_t*kernel, int kernel_width, int kernel_height)
 {
   //TODO: compare against opencv/IPP?
@@ -211,14 +175,14 @@ void RasterLookupTable::drawKernel(int ix, int iy, const uint8_t*kernel, int ker
 
 }
 
-void RasterLookupTable::drawBlurredPoint(const smPoint * p, const draw_kernel_t * kern)
+void RasterLookupTable::drawBlurredPoint(const smPoint * p, const LutKernel * kern)
 {
   int ix, iy;
   worldToTable(p->x, p->y, &ix, &iy);
   drawKernel(ix, iy, kern->square_kernel, kern->kernel_size, kern->kernel_size);
 
 }
-void RasterLookupTable::drawBlurredLine(const smPoint * p1, const smPoint * p2, const draw_kernel_t * kern)
+void RasterLookupTable::drawBlurredLine(const smPoint * p1, const smPoint * p2, const LutKernel * kern)
 {
   smPoint d = { p2->x - p1->x, p2->y - p1->y };
   if (d.x == 0 && d.y == 0) {
@@ -329,46 +293,9 @@ static int computeKernelSize(double sigma, double slope, float cutoff)
   return 2 * sz + 1;
 }
 
-void RasterLookupTable::makeDrawingKernels(double sigma, draw_kernel_t * kern)
-{
-  //make the square kernel for the endpoints
-  kern->kernel_size = computeKernelSize(sigma, 0, 32);
-  kern->square_kernel = (uint8_t *) calloc(sm_sq(kern->kernel_size), sizeof(uint8_t));
-  uint8_t * square_kernel_p = kern->square_kernel;
-  for (int i = 0; i < kern->kernel_size; i++) {
-    for (int j = 0; j < kern->kernel_size; j++) {
-      int center = kern->kernel_size / 2;
-      double x = i - center;
-      double y = j - center;
-      double d = sqrt(sm_sq(x) + sm_sq(y));
-      int val = round(255.0 * exp(-d / sigma));
-      square_kernel_p[j * kern->kernel_size + i] = (uint8_t) val;
-    }
-  }
 
-  //make the line kernels
-  kern->line_kernel_stride = computeKernelSize(sigma, M_PI / 4.0, 32);
-  kern->slope_step = M_PI / 180.0;
-  int num_line_kernels = (45.0 * M_PI / 180.0) / kern->slope_step;
-  kern->line_kernels = (uint8_t*) calloc(kern->line_kernel_stride * num_line_kernels, sizeof(uint8_t));
-  kern->line_kernel_sizes = (int *) calloc(num_line_kernels, sizeof(int));
-  for (int sl = 0; sl < num_line_kernels; sl++) {
-    double slope = kern->slope_step * sl;
-    kern->line_kernel_sizes[sl] = computeKernelSize(sigma, slope, 32);
-    uint8_t * line_kernel_p = kern->line_kernels + (sl * kern->line_kernel_stride);
-    for (int i = 0; i < kern ->line_kernel_sizes[sl]; i++) {
-      int center = kern ->line_kernel_sizes[sl] / 2;
-      double d = fabs(i - center) * cos(slope);
-      int val = round(255.0 * exp(-d / sigma));
-      line_kernel_p[i] = (uint8_t) val;
-    }
-  }
-}
-
-/*
- * compute the number of hits seen with this scanTransform
- */
-int RasterLookupTable::getNumHits(const smPoint * points, const unsigned numPoints, const ScanTransform * XYT0)
+int RasterLookupTable::getNumHits(const smPoint * points, const unsigned numPoints, const ScanTransform * XYT0,
+    int hitThresh)
 {
   int hits = 0;
   double ct = cos(XYT0->theta), st = sin(XYT0->theta);
@@ -387,11 +314,6 @@ int RasterLookupTable::getNumHits(const smPoint * points, const unsigned numPoin
   return hits;
 }
 
-/**
- * Take the provided 'points', Transform them by XYT-> 'points' should be in
- * the body frame of the robot. Compute scanmatch for a single transform.
- */
-
 float RasterLookupTable::getScore(const smPoint * points, const unsigned numPoints, const ScanTransform * XYT0)
 {
   float score = 0.0;
@@ -409,10 +331,6 @@ float RasterLookupTable::getScore(const smPoint * points, const unsigned numPoin
   return score;
 }
 
-/**
- * Take the provided 'points', Transform them by XYT-> 'points' should be in
- * the body frame of the robot. Compute scanmatch for a single transform.
- */
 
 float RasterLookupTable::getScoreDump(const smPoint * points, const unsigned numPoints, const ScanTransform * XYT0,
     const char * name)
@@ -435,14 +353,7 @@ float RasterLookupTable::getScoreDump(const smPoint * points, const unsigned num
   return score;
 }
 
-/**
- * Take the provided 'points', Transform them by XYT0-> 'points' should be in
- * the body frame of the robot. Compute scanmatch results around that
- * coordinate (in both directions, e.g. [-ixrange,+ixrange].) We count the
- * score for each pixel and whether it was a "hit", based on a closeness
- * threshold.
- *
- */
+
 ScanTransform RasterLookupTable::evaluate2D(const smPoint * points, const unsigned numPoints,
     const ScanTransform * XYT0, const ScanTransform * prior, int ixrange, int iyrange, int ixdim, int iydim,
     float * scores, int * bestScoreIndX, int *bestScoreIndY)
@@ -492,58 +403,12 @@ ScanTransform RasterLookupTable::evaluate2D(const smPoint * points, const unsign
     //ipp
     IppiSize roiSize = {bx1 - bx0 + 1, by1 - by0 + 1}; //+1 due to <= below
     uint8_t * pSrc = distdata+ width*by0+bx0;
-    float * pScoreAcum = scores + (by0 - iy0)*ixdim + (bx0 - ix0); //
-    //    FILE * f = fopen("tmpDump.m","w");
-    //    fprintf(f,"pidx=%d\n",pidx);
-    //    fprintf(f,"width=%d\n",width);
-    //    fprintf(f,"height=%d\n",height);
-    //
-    //    fprintf(f,"ixdim=%d\n",ixdim);
-    //    fprintf(f,"iydim=%d\n",iydim);
-    //
-    //    fprintf(f,"ix0=%d\n",ix0);
-    //    fprintf(f,"iy0=%d\n",iy0);
-    //    fprintf(f,"bx0=%d\n",bx0);
-    //    fprintf(f,"by0=%d\n",by0);
-    //    fprintf(f,"bx1=%d\n",bx1);
-    //    fprintf(f,"by1=%d\n",by1);
-    //
-    //
-    //
-    //    fprintf(f,"pSrc=0x%p\n",pSrc);
-    //    fprintf(f,"dataStep=%d\n",dataStep);
-    //    fprintf(f,"pScoreAcum=0x%p\n",pScoreAcum);
-    //    fprintf(f,"scoresStep=%d\n",scoresStep);
-    //    fprintf(f,"roiSize.width=%d\n",roiSize.width);
-    //    fprintf(f,"roiSize.height=%d\n",roiSize.height);
-    //    fprintf(f,"src = [\n");
-    //    for (int i = 0;i<roiSize.height;i++) {
-    //      uint8_t * p = pSrc+ i*dataStep;
-    //      for (int j=0;j<roiSize.width;j++) {
-    //        fprintf(f,"%d ",*p++);
-    //      }
-    //      fprintf(f,"\n");
-    //    }
-    //    fprintf(f,"];\n");
-    //
-    //    fprintf(f,"scoreAcum = [\n");
-    //    for (int i = 0;i<roiSize.height;i++) {
-    //      float * p = pScoreAcum+ i*ixdim;
-    //      for (int j=0;j<roiSize.width;j++) {
-    //        fprintf(f,"%f ",*p++);
-    //      }
-    //      fprintf(f,"\n");
-    //    }
-    //    fprintf(f,"];\n");
-    //    fclose(f);
-
+    float * pScoreAcum = scores + (by0 - iy0)*ixdim + (bx0 - ix0);
     ippiAdd_8u32f_C1IR(pSrc, dataStep, pScoreAcum, scoresStep, roiSize);
 #else
 
     for (int iy = by0; iy <= by1; iy++) {
-
       int sy = iy - iy0; // y coordinate in scores[]
-
       for (int ix = bx0; ix <= bx1; ix++) {
 
         int lutval = distdata[iy * width + ix];
@@ -621,7 +486,7 @@ bool score_entry_comp(const score_entry & i, const score_entry & j)
 /** Perform a brute-force search in 3DOFs. * */
 ScanTransform RasterLookupTable::evaluate3D_multiRes(RasterLookupTable * rlt_high_res, const smPoint * points,
     const unsigned numPoints, const ScanTransform * prior, double xrange, double yrange, double thetarange,
-    double thetastep, int * xSat, int *ySat, int * thetaSat)
+    double thetastep, int hitThresh, int * xSat, int *ySat, int * thetaSat)
 {
   ScanTransform XYT0;
 
@@ -798,7 +663,7 @@ ScanTransform RasterLookupTable::evaluate3D_multiRes(RasterLookupTable * rlt_hig
 
   //  fprintf(stderr, "only checked %d of %d voxels at high_res\n",i,ixdim*iydim*itdim);
   //get the number of hits for this transform in the high res table
-  bestResult.hits = rlt_high_res->getNumHits(points, numPoints, &bestResult);
+  bestResult.hits = rlt_high_res->getNumHits(points, numPoints, &bestResult, hitThresh);
 
   //actually compute the covariance
   double K[9] = { 0 };
@@ -839,48 +704,6 @@ ScanTransform RasterLookupTable::evaluate3D_multiRes(RasterLookupTable * rlt_hig
   sm_vector_sub_nd(K, u_outer, 9, cov);
   cov[8] = fmax(cov[8], 1e-3); //often times the top 85% will all be the same theta
   memcpy(bestResult.sigma, cov, 9 * sizeof(double));
-
-  //TODO: scale and square xy-covariance, since that seems to gives a better approximation of the uncertainty...
-  //  double sigma[9];
-  //  memcpy(sigma, cov, 9 * sizeof(double));
-  //  double evals[3] = { 0 };
-  //  double evals_sq[9] = { 0 };
-  //  double evecs[9] = { 0 };
-  //  double evecsT[9] = { 0 };
-  //  double sigma_scaled[9] = { 0 };
-  //  CvMat cv_sigma = cvMat(3, 3, CV_64FC1, sigma);
-  //  CvMat cv_sigma_scaled = cvMat(3, 3, CV_64FC1, sigma_scaled);
-  //  CvMat cv_evals = cvMat(3, 1, CV_64FC1, evals);
-  //  CvMat cv_evals_sq = cvMat(3, 3, CV_64FC1, evals_sq);
-  //  CvMat cv_evecs = cvMat(3, 3, CV_64FC1, evecs);
-  //  CvMat cv_evecsT = cvMat(3, 3, CV_64FC1, evecsT);
-  //  cvEigenVV(&cv_sigma, &cv_evecs, &cv_evals);
-  //  if (evals[0] <= 0 || evals[1] <= 0 || evals[2] <= 0)
-  //    fprintf(stderr, "ERROR: pre-scaled cov is not P.S.D!\n");
-  //
-  //  cvPow(&cv_evals, &cv_evals, 2); //square the eigan values
-  //  cvScale(&cv_evals, &cv_evals, 50); //multiply by 50
-  //
-  //  if (evals[0] > .015) {
-  //    fprintf(stderr, "Eigenvalue 1 is %f, discarding this direction\n", evals[0]);
-  //    evals[0] *= 10; //estimate is total garbage in this direction
-  //  }
-  //  if (evals[1] > .015) {
-  //    fprintf(stderr, "Eigenvalue 2 is %f, discarding this direction\n", evals[3]);
-  //    evals[1] *= 10; //estimate is total garbage in this direction
-  //  }
-  //  CvMat cv_diag;
-  //  cvGetDiag(&cv_evals_sq, &cv_diag);
-  //  cvCopy(&cv_evals, &cv_diag);
-  //
-  //  cvTranspose(&cv_evecs, &cv_evecsT);
-  //  cvMatMul(&cv_evecs, &cv_evals_sq, &cv_sigma);
-  //  cvMatMul(&cv_sigma, &cv_evecsT, &cv_sigma_scaled);
-  //  memcpy(bestResult.sigma, sigma_scaled, 9 * sizeof(double));
-  //
-  //  cvEigenVV(&cv_sigma_scaled, &cv_evecs, &cv_evals);
-  //  if (evals[0] <= 0 || evals[1] <= 0 || evals[2] <= 0)
-  //    fprintf(stderr, "ERROR: scaled cov is not P.S.D!\n");
 
 #if DRAW_COST_SURFACE
   //draw score cloud with lcmgl
@@ -939,8 +762,8 @@ ScanTransform RasterLookupTable::evaluate3D_multiRes(RasterLookupTable * rlt_hig
 
 /** Perform a brute-force search in 3DOFs. * */
 ScanTransform RasterLookupTable::evaluate3D(const smPoint * points, const unsigned numPoints,
-    const ScanTransform * prior, double xrange, double yrange, double thetarange, double thetastep, int * xSat,
-    int *ySat, int * thetaSat)
+    const ScanTransform * prior, double xrange, double yrange, double thetarange, double thetastep, int hitThresh,
+    int * xSat, int *ySat, int * thetaSat)
 {
   ScanTransform xyt = *prior;
   ScanTransform bestResult;
@@ -1038,47 +861,6 @@ ScanTransform RasterLookupTable::evaluate3D(const smPoint * points, const unsign
   cov[8] = fmax(cov[8], 1e-3); //often times the top 85% will all be the same theta
   memcpy(bestResult.sigma, cov, 9 * sizeof(double));
 
-  //  //TODO: scale and square xy-covariance, since that seems to gives a better approximation of the uncertainty...
-  //  double sigma[9];
-  //  memcpy(sigma, cov, 9 * sizeof(double));
-  //  double evals[3] = { 0 };
-  //  double evals_sq[9] = { 0 };
-  //  double evecs[9] = { 0 };
-  //  double evecsT[9] = { 0 };
-  //  double sigma_scaled[9] = { 0 };
-  //  CvMat cv_sigma = cvMat(3, 3, CV_64FC1, sigma);
-  //  CvMat cv_sigma_scaled = cvMat(3, 3, CV_64FC1, sigma_scaled);
-  //  CvMat cv_evals = cvMat(3, 1, CV_64FC1, evals);
-  //  CvMat cv_evals_sq = cvMat(3, 3, CV_64FC1, evals_sq);
-  //  CvMat cv_evecs = cvMat(3, 3, CV_64FC1, evecs);
-  //  CvMat cv_evecsT = cvMat(3, 3, CV_64FC1, evecsT);
-  //  cvEigenVV(&cv_sigma, &cv_evecs, &cv_evals);
-  //  if (evals[0] <= 0 || evals[1] <= 0 || evals[2] <= 0)
-  //    fprintf(stderr, "ERROR: pre-scaled cov is not P.S.D!\n");
-  //
-  //  cvPow(&cv_evals, &cv_evals, 2); //square the eigan values
-  //  cvScale(&cv_evals, &cv_evals, 50); //multiply by 50
-  //
-  //  if (evals[0] > .015) {
-  //    fprintf(stderr, "Eigenvalue 1 is %f, discarding this direction\n", evals[0]);
-  //    evals[0] *= 10; //estimate is total garbage in this direction
-  //  }
-  //  if (evals[1] > .015) {
-  //    fprintf(stderr, "Eigenvalue 1 is %f, discarding this direction\n", evals[3]);
-  //    evals[1] *= 10; //estimate is total garbage in this direction
-  //  }
-  //  CvMat cv_diag;
-  //  cvGetDiag(&cv_evals_sq, &cv_diag);
-  //  cvCopy(&cv_evals, &cv_diag);
-  //
-  //  cvTranspose(&cv_evecs, &cv_evecsT);
-  //  cvMatMul(&cv_evecs, &cv_evals_sq, &cv_sigma);
-  //  cvMatMul(&cv_sigma, &cv_evecsT, &cv_sigma_scaled);
-  //  memcpy(bestResult.sigma, sigma_scaled, 9 * sizeof(double));
-  //
-  //  cvEigenVV(&cv_sigma_scaled, &cv_evecs, &cv_evals);
-  //  if (evals[0] <= 0 || evals[1] <= 0 || evals[2] <= 0)
-  //    fprintf(stderr, "ERROR: scaled cov is not P.S.D!\n");
 
   sm_tictoc("compute_Variance");
 
@@ -1117,69 +899,7 @@ ScanTransform RasterLookupTable::evaluate3D(const smPoint * points, const unsign
 
 #endif
 
-  //      sm_tictoc("compute_Variance");
-  //
-  //      //compute cost map statistics so we can extract a covariance matrix
-  //
-  //      //xy covariance
-  //      uint8_t * costMap = (uint8_t *) calloc(ixdim * iydim, sizeof(uint8_t));
-  //      for (int i = 0; i < iydim; i++) {
-  //        for (int j = 0; j < ixdim; j++) {
-  //          if (allScores[bestThetaInd][i * ixdim + j] > .97 * bestResult.score)
-  //            costMap[i * ixdim + j] = (uint8_t) ((255 * allScores[bestThetaInd][i * ixdim + j]) / bestResult.score); //normalize this to be 0-255
-  //        }
-  //      }
-  //      CvMoments moments;
-  //      CvMat cv_costMap = cvMat(iydim, ixdim, CV_8UC1, costMap);
-  //      cvMoments(&cv_costMap, &moments, 0);
-  //      double u00 = cvGetCentralMoment(&moments, 0, 0);
-  //      double u20 = cvGetCentralMoment(&moments, 2, 0);
-  //      double u02 = cvGetCentralMoment(&moments, 0, 2);
-  //      double u11 = cvGetCentralMoment(&moments, 1, 1);
-  //
-  //      bestResult.sigma[0] = u20 / u00 * .001;
-  //      bestResult.sigma[1] = u11 / u00* .001;
-  //      bestResult.sigma[3] = u11 / u00* .001;
-  //      bestResult.sigma[4] = u02 / u00* .001;
-  //
-  //      //  printf("moments are :\n");
-  //      //  printf("u00=%f, u20=%f, u02=%f, u11=%f \n", u00, u20, u02, u11);
-  //      //  printf("that would indicate the cov matrix is:\n");
-  //      //  printf("[ %f %f\n",u20/u00,u11/u00);
-  //      //  printf("  %f %f]\n",u11/u00,u02/u00);
-  //
-  //      //  CvMat * cv_costMap_big = cvCreateMat(iydim*10, ixdim*10, CV_8UC1);
-  //      //  cvResize(&cv_costMap,cv_costMap_big);
-  //      //  cvFlip(cv_costMap_big,cv_costMap_big);
-  //      //  cvNamedWindow("varComp",CV_WINDOW_AUTOSIZE);
-  //      //  cvShowImage("varComp", cv_costMap_big);
-  //
-  //      //yaw variance
-  //      int l = sm_imax(bestThetaInd - 3, 0);
-  //      int r = sm_imin(bestThetaInd + 3, itdim - 1);
-  //      float slope = (bestThetaScores[bestThetaInd] - bestThetaScores[l] + bestThetaScores[bestThetaInd]
-  //          - bestThetaScores[r]) * 1.0 / (r - l);
-  //      bestResult.sigma[8] = 100.0 / slope* .0001;
-  //
-  //      //  uint8_t * tmap = (uint8_t *) calloc(itdim, sizeof(uint8_t));
-  //      //  for (int j = 0; j < itdim; j++) {
-  //      //    if (bestThetaScores[j] > .97 * bestResult.score)
-  //      //      tmap[j] = (255 * bestThetaScores[j]) / bestResult.score; //normalize this to be 0-255
-  //      //  }
-  //      //  CvMoments thetamoments;
-  //      //  CvMat cv_tMap = cvMat(itdim, 1, CV_8UC1, tmap);
-  //      //  cvMoments(&cv_tMap, &thetamoments, 0);
-  //      //  double u00t = cvGetCentralMoment(&thetamoments, 0, 0);
-  //      //  double u02t = cvGetCentralMoment(&thetamoments, 0, 2);
-  //      //
-  //      //  //  printf("theta moments are :\n");
-  //      //  //  printf("u00t=%f, u02t=%f\n", u00t, u02t);
-  //      //  //  printf("that would indicate the Variance is:\n");
-  //      //  //  printf(" [%f]\n",u02t / u00t);
-  //      //
-  //      //  bestResult.sigmaT = u02t / u00t;
-  //
-  //      sm_tictoc("compute_Variance");
+
 
   //check whether we hit the edge of our ranges...
 
@@ -1207,62 +927,8 @@ ScanTransform RasterLookupTable::evaluate3D(const smPoint * points, const unsign
       *thetaSat = 1;
   }
 
-  //  FILE * f = fopen("scoreDump.m", "w");
-  //  fprintf(f, "bestThetaInd =%d\n", bestThetaInd + 1);
-  //  fprintf(f, "bestXInd =%d\n", bestXInd + 1);
-  //  fprintf(f, "bestYInd =%d\n", bestYInd + 1);
-  //  for (int t = 0; t < itdim; t++) {
-  //    fprintf(f, "scores{%d} = [\n", t + 1);
-  //    for (int i = 0; i < iydim; i++) {
-  //      for (int j = 0; j < ixdim; j++) {
-  //        fprintf(f, "%f,", allScores[t][i * ixdim + j]);
-  //      }
-  //      fprintf(f, ";\n");
-  //    }
-  //    fprintf(f, "];\n");
-  //  }
-  //
-  //  fprintf(f, "origpoints=[\n");
-  //  double ct = cos(XYT0->theta), st = sin(XYT0->theta);
-  //  // Evaluate each point for a fixed transform
-  //  for (unsigned pidx = 0; pidx < numPoints; pidx++) {
-  //    // project the point
-  //    smPoint p = points[pidx];
-  //    double x = p.x * ct - p.y * st + XYT0->x;
-  //    double y = p.x * st + p.y * ct + XYT0->y;
-  //    int ix, iy;
-  //    worldToTable(x, y, &ix, &iy);
-  //    fprintf(f, "%d %d\n", ix, iy);
-  //  }
-  //  fprintf(f, "];\n");
-  //
-  //  fprintf(f, "bestpoints=[\n");
-  //  // Evaluate each point for a fixed transform
-  //  for (unsigned pidx = 0; pidx < numPoints; pidx++) {
-  //    // project the point
-  //    smPoint p = points[pidx];
-  //    double x = p.x * ct - p.y * st + bestResult.x;
-  //    double y = p.x * st + p.y * ct + bestResult.y;
-  //    int ix, iy;
-  //    worldToTable(x, y, &ix, &iy);
-  //    fprintf(f, "%d %d\n", ix, iy);
-  //  }
-  //  fprintf(f, "];\n");
-  //
-  //  fclose(f);
-  //  dumpTable("table");
-  //
-
-  //  //sanity check:
-  //  float priorScore = getScore(points,numPoints,XYT0);
-  //  int priorHits = getNumHits(points, numPoints, XYT0);
-  //  float bestScore = getScore(points,numPoints,&bestResult);
-  //  int bestHits = getNumHits(points, numPoints, &bestResult);
-  //  assert(bestScore>=priorScore);
-
-
   //get the number of hits for this transform
-  bestResult.hits = getNumHits(points, numPoints, &bestResult);
+  bestResult.hits = getNumHits(points, numPoints, &bestResult, hitThresh);
 
   //cleanup
   for (int i = 0; i < itdim; i++) {
@@ -1277,114 +943,50 @@ ScanTransform RasterLookupTable::evaluate3D(const smPoint * points, const unsign
   return bestResult;
 }
 
-//void
-//RasterLookupTable::drawRobot(CvMat * drawImg, ScanTransform transf,
-//        CvScalar color)
-//{
-//
-//    //  double displayRatio = (double) maxDrawDim / (double) width;
-//    CvPoint p1, p2;
-//    worldToDisplay(transf.x, transf.y, &p1.x, &p1.y);
-//
-//    cvCircle(drawImg, p1, 3, color, 2);
-//
-//    double hx, hy;
-//    hx = transf.x + .3 * cos(transf.theta);
-//    hy = transf.y + .3 * sin(transf.theta);
-//    worldToDisplay(hx, hy, &p2.x, &p2.y);
-//    cvLine(drawImg, p1, p2, color, 2);
-//
-//}
-
-//void
-//RasterLookupTable::drawScan(CvMat * drawImg, smPoint * points,
-//        unsigned numPoints, ScanTransform transf, CvScalar color)
-//{
-//
-//    static smPoint * pp = NULL;
-//    pp = (smPoint *) realloc((void *) pp, numPoints * sizeof(smPoint));
-//    sm_transformPoints(&transf, points, numPoints, pp);
-//
-//    CvPoint p;
-//    for (unsigned i = 0; i < numPoints; i++) {
-//        worldToDisplay(pp[i].x, pp[i].y, &p.x, &p.y);
-//        cvCircle(drawImg, p, 2, color, -1);
-//    }
-//    drawRobot(drawImg, transf, color);
-//
-//    worldToDisplay(transf.x, transf.y, &p.x, &p.y);
-//
-//    sm_drawCov(drawImg, p, transf.sigma[0], transf.sigma[1], transf.sigma[4],
-//            transf.sigma[8], 500, 250, 2, CV_RGB(0,255,0), CV_RGB(255,0,0));
-//
-//    //this doesn't actually work
-//    //  extern carmen3d_state_correction_message state_correction;
-//    //  ScanTransform correctedTransf = *transf;
-//    //  correctedTransf.x = transf.x + state_correction.correction.x;
-//    //  correctedTransf.y = transf.y + state_correction.correction.y;
-//    //  correctedTransf.theta = transf.theta + state_correction.correction.yaw;
-//    //  drawRobot(drawImg,&correctedTransf,CV_RGB(0,0,255));
-//
-//}
-
-
-//TODO: This should really be using an occ_map pixelmap
-//TODO: lcmgl probably makes more sense
-#include <lcmtypes/sm_pixel_map_t.h>
-#include <zlib.h>
-void RasterLookupTable::publishMap(lcm_t * lcm, const char * channel, int64_t utime)
+LutKernel::LutKernel(double sigma)
 {
-  sm_pixel_map_t * msg = (sm_pixel_map_t*) calloc(1, sizeof(sm_pixel_map_t));
-  msg->xy0[0] = x0;
-  msg->xy0[1] = y0;
-  msg->xy1[0] = x1;
-  msg->xy1[1] = y1;
-  msg->mpp = metersPerPixel;
-  msg->dimensions[0] = width;
-  msg->dimensions[1] = height;
-
-  int num_cells = width * height;
-  uLong uncompressed_size = num_cells * sizeof(uint8_t);
-
-  uLong compress_buf_size = uncompressed_size * 1.01 + 12; //with extra space for zlib
-  msg->mapData = (uint8_t *) realloc(msg->mapData, compress_buf_size);
-  int compress_return = compress2((Bytef *) msg->mapData, &compress_buf_size, (Bytef *) distdata, uncompressed_size,
-      Z_BEST_SPEED);
-  if (compress_return != Z_OK) {
-    fprintf(stderr, "ERROR: Could not compress voxel map!\n");
-    exit(1);
+  //make the square kernel for the endpoints
+  kernel_size = computeKernelSize(sigma, 0, 32);
+  square_kernel = (uint8_t *) calloc(sm_sq(kernel_size), sizeof(uint8_t));
+  uint8_t * square_kernel_p = square_kernel;
+  for (int i = 0; i < kernel_size; i++) {
+    for (int j = 0; j < kernel_size; j++) {
+      int center = kernel_size / 2;
+      double x = i - center;
+      double y = j - center;
+      double d = sqrt(sm_sq(x) + sm_sq(y));
+      int val = round(255.0 * exp(-d / sigma));
+      square_kernel_p[j * kernel_size + i] = (uint8_t) val;
+    }
   }
-  //    fprintf(stderr, "uncompressed_size=%ld compressed_size=%ld\n", uncompressed_size, compress_buf_size);
-  msg->datasize = compress_buf_size;
-  msg->compressed = 1;
 
-  //set the data_type
-  msg->data_type = SM_PIXEL_MAP_T_TYPE_UINT8;
-
-  msg->utime = utime;
-
-  sm_pixel_map_t_publish(lcm,channel,msg);
-  sm_pixel_map_t_destroy(msg);
+  //make the line kernels
+  line_kernel_stride = computeKernelSize(sigma, M_PI / 4.0, 32);
+  slope_step = M_PI / 180.0;
+  int num_line_kernels = (45.0 * M_PI / 180.0) / slope_step;
+  line_kernels = (uint8_t*) calloc(line_kernel_stride * num_line_kernels, sizeof(uint8_t));
+  line_kernel_sizes = (int *) calloc(num_line_kernels, sizeof(int));
+  for (int sl = 0; sl < num_line_kernels; sl++) {
+    double slope = slope_step * sl;
+    line_kernel_sizes[sl] = computeKernelSize(sigma, slope, 32);
+    uint8_t * line_kernel_p = line_kernels + (sl * line_kernel_stride);
+    for (int i = 0; i < line_kernel_sizes[sl]; i++) {
+      int center = line_kernel_sizes[sl] / 2;
+      double d = fabs(i - center) * cos(slope);
+      int val = round(255.0 * exp(-d / sigma));
+      line_kernel_p[i] = (uint8_t) val;
+    }
+  }
 }
 
-void RasterLookupTable::drawMapLCMGL(bot_lcmgl_t * lcmgl){
-
-  int texid = bot_lcmgl_texture2d(lcmgl, distdata,
-       width, height, width*sizeof(uint8_t),
-       BOT_LCMGL_LUMINANCE, BOT_LCMGL_COMPRESS_NONE);
-
-  bot_lcmgl_enable(lcmgl,GL_BLEND);
-  bot_lcmgl_enable(lcmgl,GL_DEPTH_TEST);
-
-  bot_lcmgl_texture_draw_quad(lcmgl, texid,
-      x0, y0, 0,
-      x0, y1, 0,
-      x1, y1, 0,
-      x1, y0, 0);
-
-  bot_lcmgl_disable(lcmgl,GL_BLEND);
-  bot_lcmgl_disable(lcmgl,GL_DEPTH_TEST);
-
-
+LutKernel::~LutKernel()
+{
+  if (square_kernel != NULL)
+    free(square_kernel);
+  if (line_kernel_sizes != NULL)
+    free(line_kernel_sizes);
+  if (line_kernels != NULL)
+    free(line_kernels);
 }
 
+}//namespace scanmatch

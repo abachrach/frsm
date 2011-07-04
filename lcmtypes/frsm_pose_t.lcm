@@ -1,4 +1,4 @@
-package sm;
+package frsm;
 
 // this lcmtype is copied from the bot-core pod in libbot2. 
 // it should be kept in sysnc for compatibility!

@@ -207,14 +207,12 @@ public:
   void
   clearScans(bool deleteScans);
 
-  //    /*
-  //     * drawGUI:
-  //     * draw a redimentary visualization of whats goin on with the scan matcher using openCV
-  //     */
-  //    void
-  //    drawGUI(smPoint * points, unsigned numPoints, ScanTransform transf,
-  //            CvMat * heightGui = NULL, const char * guiname = "ScanMatcher",
-  //            CvScalar scanColor = CV_RGB(255, 0, 0));
+  /*
+   * draw_func:
+   * declare a friend function with access to everything for visualization ;-)
+   * needs to be implimented by the user.
+   */
+  friend void ScanMatcher_draw_func(void * user);
 
   /*
    * isUsingIPP:
@@ -262,6 +260,11 @@ public:
    * Max number of scans to keep in the local sliding window map
    */
   unsigned int maxNumScans;
+
+  /*
+   * Threshold for considering a point a "hit" in the lookup table
+   */
+  int hitThresh;
 
   /*
    * use the mutli resolution search, should be faster for large search windows (and small, but not as big of a difference)
@@ -351,14 +354,14 @@ private:
   ContourExtractor * contour_extractor;
 
   //stuff for creating raster table using my  line drawing primitive
-  draw_kernel_t draw_kernels;
+  LutKernel * draw_kernels;
 
   //for creating the raster table using olson's method
   int lutSq_first_zero;
   unsigned char * lutSq;
 
   //threading stuff
-  friend void * thread_wrapper_func(void * user);
+  friend void * ScanMatcher_thread_wrapper_func(void * user);
   int killThread;
   int cancelAdd;
   pthread_t rebuilder;
@@ -372,10 +375,6 @@ private:
 
 };
 
-/*
- * Declare wrapper function so friending works :-/
- */
-void * thread_wrapper_func(void * user);
 
 }
 

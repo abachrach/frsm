@@ -7,11 +7,9 @@
 #include <math.h>
 #include <values.h>
 #include <assert.h>
-#include <opencv/cxcore.h>
-#include <opencv/cv.h>
 
 using namespace std;
-using namespace scanmatch;
+namespace scanmatch{
 
 ContourExtractor::ContourExtractor(sm_laser_type_t laser_type):
     laserType(laser_type)
@@ -391,3 +389,4 @@ void Contour::simplifyDP(float tol, std::vector<smPoint> &v, int j, int k, std::
 //===================================================================
 
 
+}//namespace scanmatch

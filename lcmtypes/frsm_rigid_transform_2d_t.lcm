@@ -1,4 +1,4 @@
-package sm;
+package frsm;
 
 struct rigid_transform_2d_t
 {

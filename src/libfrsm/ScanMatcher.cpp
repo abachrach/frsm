@@ -7,13 +7,11 @@
 #include "ScanMatchingUtils.hpp"
 #include <signal.h>
 #include <assert.h>
-#include <bot_core/bot_core.h>
-#include <bot_lcmgl_client/lcmgl.h>
 
 using namespace std;
-using namespace scanmatch;
+namespace scanmatch {
 
-void * scanmatch::thread_wrapper_func(void * user)
+void * ScanMatcher_thread_wrapper_func(void * user)
 {
   ScanMatcher*parent = (ScanMatcher*) user;
   fprintf(stderr, "starting rebuild thread\n");
@@ -29,12 +27,14 @@ ScanMatcher::ScanMatcher(double metersPerPixel_, double thetaResolution_, int us
       useThreads(useThreads_), killThread(1)
 {
 
+  hitThresh = 100;
+
   downsampleFactor = (1 << useMultiRes);
 
   //line drawing kernel stuff
   double sigma = .0675 / metersPerPixel; //sigma is in pixels
   //  sigma = 21;
-  RasterLookupTable::makeDrawingKernels(sigma, &draw_kernels);
+  draw_kernels = new LutKernel(sigma);
 
   lutSq_first_zero = -1;
   lutSq = NULL;
@@ -62,7 +62,7 @@ ScanMatcher::ScanMatcher(double metersPerPixel_, double thetaResolution_, int us
     pthread_cond_init(&toBeProcessed_cv, NULL);
 
     //create rebuilder thread
-    pthread_create(&rebuilder, 0, thread_wrapper_func, (void *) this);
+    pthread_create(&rebuilder, 0, ScanMatcher_thread_wrapper_func, (void *) this);
   }
 }
 
@@ -130,6 +130,11 @@ ScanMatcher::~ScanMatcher()
     pthread_cond_destroy(&toBeProcessed_cv);
 
   }
+
+  if (lutSq != NULL)
+    free(lutSq);
+  if (draw_kernels != NULL)
+    delete draw_kernels;
 
 }
 
@@ -343,18 +348,40 @@ void ScanMatcher::rebuildRaster_olson(RasterLookupTable ** rasterTable)
   RasterLookupTable * rt = new RasterLookupTable(minx - margin, miny - margin, maxx + margin, maxy + margin,
       metersPerPixel, downsampleFactor);
 
-  // For a long time, I experimented with drawing older scans
-  // with greater "weight" than newer scans. I now think this
-  // isn't a good idea. It tends to discount new (and often
-  // useful) feature observations. Arbitrarilly rendering the
-  // oldest scan with greater weight magnifies the error in that
-  // one particular scan and can induce oscillatory behavior
-  // (where we jump back and forth between two slightly
-  // misalgined scans.)
-
   //initialize the lookup table if it hasn't ben already done
-  if (lutSq_first_zero < 0 || lutSq == NULL)
-    lutSq = RasterLookupTable::makeLut(512, 10, 1.0, &lutSq_first_zero);
+  if (lutSq_first_zero < 0 || lutSq == NULL) {
+    /**
+     * Make a lookup table with 'sz' entries. The lookup table will have an
+     * exponential fall-off with maximum value 255.
+     *
+     * lut[0] = weight*255 ... lut[i] = weight*255*e^{-i*alpha} ... lut[sz] =
+     * weight*255*e^{-maxChiSq}
+     *
+     * Weight should be [0,1].
+     */
+    int sz = 512;
+    double maxChiSq = 10;
+    double weight = 1.0;
+
+    lutSq = (uint8_t *) malloc(sz * sizeof(char));
+    bool set_lutSq_first_zero = false;
+    for (int i = 0; i < sz; i++) {
+      int v = (int) round(255.0 * weight * exp(-maxChiSq * i / (sz - 1)));
+      if (v == 0 && !set_lutSq_first_zero) {
+        set_lutSq_first_zero = true;
+        lutSq_first_zero = i;
+      }
+      assert(v >= 0);
+      assert(v <= 255);
+      lutSq[i] = (uint8_t) v;
+    }
+    if (!set_lutSq_first_zero) {
+      set_lutSq_first_zero = true;
+      lutSq_first_zero = sz;
+    }
+
+  }
+
   double lutSqRange = pow(0.25, 2);
 
   // draw each scan.
@@ -391,12 +418,12 @@ void ScanMatcher::drawBlurredScan(RasterLookupTable * rt, Scan * s)
       for (unsigned i = 0; i < s->contours[cidx]->points.size() - 1; i++) {
         const smPoint &p0 = s->contours[cidx]->points[i];
         const smPoint &p1 = s->contours[cidx]->points[i + 1];
-        rt->drawBlurredPoint(&p0, &draw_kernels);
-        rt->drawBlurredLine(&p0, &p1, &draw_kernels);
+        rt->drawBlurredPoint(&p0, draw_kernels);
+        rt->drawBlurredLine(&p0, &p1, draw_kernels);
       }
     }
     //draw the last point in the contour
-    rt->drawBlurredPoint(&s->contours[cidx]->points.back(), &draw_kernels);
+    rt->drawBlurredPoint(&s->contours[cidx]->points.back(), draw_kernels);
   }
 }
 
@@ -421,13 +448,6 @@ void ScanMatcher::rebuildRaster_blurLine(RasterLookupTable ** rasterTable)
     drawBlurredScan(rt, s);
   }
   sm_tictoc("drawBlurLines");
-
-  static lcm_t * lcm = bot_lcm_get_global(NULL);
-  static bot_lcmgl_t * lcmgl = bot_lcmgl_init(lcm, "FRSM-MAP");
-
-  rt->publishMap(bot_lcm_get_global(NULL), "SLAM_MAP", sm_get_utime());
-  rt->drawMapLCMGL(lcmgl);
-  bot_lcmgl_switch_buffer(lcmgl);
 
   if (*rasterTable != NULL)
     delete *rasterTable;
@@ -458,13 +478,14 @@ ScanTransform ScanMatcher::gridMatch(smPoint * points, unsigned numPoints, ScanT
   ScanTransform r;
   if (useMultiRes <= 0) {
     sm_tictoc("evaluate3D");
-    r = rlt->evaluate3D(points, numPoints, prior, xRange, yRange, thetaRange, thetaResolution, xSat, ySat, thetaSat);
+    r = rlt->evaluate3D(points, numPoints, prior, xRange, yRange, thetaRange, thetaResolution, hitThresh, xSat, ySat,
+        thetaSat);
     sm_tictoc("evaluate3D");
   }
   else {
     sm_tictoc("evaluate3D_multiRes");
     r = rlt_low_res->evaluate3D_multiRes(rlt, points, numPoints, prior, xRange, yRange, thetaRange, thetaResolution,
-        xSat, ySat, thetaSat);
+        hitThresh, xSat, ySat, thetaSat);
     sm_tictoc("evaluate3D_multiRes");
   }
   r.theta = sm_normalize_theta(r.theta);
@@ -480,6 +501,7 @@ ScanTransform ScanMatcher::gridMatch(smPoint * points, unsigned numPoints, ScanT
 
 }
 
+//TODO: gauss newton or ESM optimizaiton?
 ScanTransform ScanMatcher::coordAscentMatch(smPoint * points, unsigned numPoints, ScanTransform * startTrans)
 {
   typedef enum {
@@ -577,7 +599,7 @@ ScanTransform ScanMatcher::coordAscentMatch(smPoint * points, unsigned numPoints
   //  }
 
   //get the number of hits
-  currentTrans.hits = rlt->getNumHits(points, numPoints, &currentTrans);
+  currentTrans.hits = rlt->getNumHits(points, numPoints, &currentTrans, hitThresh);
 
   if (useThreads)
     pthread_mutex_unlock(&rlt_mutex);
@@ -663,13 +685,6 @@ void ScanMatcher::addScan(Scan *s, bool rebuildNow)
     rebuildRaster(&rlt);
     sm_tictoc("rebuildRaster");
 
-    //  CvMat * tab = rlt->drawTable();
-    //  cvFlip(tab, tab);
-    //  cvSaveImage("table.bmp", tab);
-    //  smPoint tpoint = { T->x, T->y };
-    //  CvMat * cont = scans.back()->drawContours(rlt->maxDrawDim,rlt->pixelsPerMeter, &tpoint);
-    //  cvSaveImage("contours.bmp", cont);
-
     if (useMultiRes > 0) {
       sm_tictoc("rebuild_lowRes");
       if (rlt_low_res != NULL)
@@ -677,9 +692,6 @@ void ScanMatcher::addScan(Scan *s, bool rebuildNow)
       rlt_low_res = new RasterLookupTable(rlt, downsampleFactor);
       sm_tictoc("rebuild_lowRes");
     }
-
-    //  rlt->dumpTable("High_res");
-    //  rlt_low_res->dumpTable("Low_res");
 
     if (useThreads) {
       pthread_mutex_unlock(&rlt_mutex);
@@ -690,78 +702,6 @@ void ScanMatcher::addScan(Scan *s, bool rebuildNow)
   }
 
 }
-
-//void ScanMatcher::drawGUI(smPoint * points, unsigned numPoints, ScanTransform transf, CvMat * heightGui,
-//    const char * guiName, CvScalar scanColor)
-//{
-//
-//  if (useThreads) {
-//    pthread_mutex_lock(&scans_mutex);
-//    pthread_mutex_lock(&rlt_mutex);
-//  }
-//  //  fprintf(stderr,"gui has rlt lock\n");
-//
-//  CvMat * gui = rlt->drawTable();
-//  list<Scan *>::iterator it;
-//  for (it = scans.begin(); it != scans.end(); ++it) {
-//    Scan * s = *it;
-//    rlt->drawRobot(gui, s->T, CV_RGB(0, 255, 0));
-//  }
-//  rlt->drawScan(gui, points, numPoints, transf, scanColor);
-//
-//  cvFlip(gui, gui);
-//
-//  CvSize guiSize = cvGetSize(gui);
-//  CvSize heightSize;
-//  if (heightGui != NULL)
-//    heightSize = cvGetSize(heightGui);
-//  else {
-//    heightSize.width = 0;
-//    heightSize.height = 0;
-//  }
-//
-//  int squareSize = rlt->maxDrawDim;
-//
-//  sm_allocateOrResizeMat(&fullGui, squareSize, squareSize + heightSize.width, CV_8UC3);
-//  cvSet(fullGui, CV_RGB(255, 255, 255));
-//  //put the map etc in the fullGui
-//  CvMat subGui;
-//  CvRect subGuiRect;
-//  subGuiRect.height = guiSize.height;
-//  subGuiRect.width = guiSize.width;
-//  subGuiRect.x = (squareSize - guiSize.width) / 2;
-//  subGuiRect.y = (squareSize - guiSize.height) / 2;
-//  cvGetSubRect(fullGui, &subGui, subGuiRect);
-//  cvCopy(gui, &subGui);
-//
-//  if (heightGui != NULL) {
-//    //put the height Drawing in the fullGui
-//    subGuiRect.height = heightSize.height;
-//    subGuiRect.width = heightSize.width;
-//    subGuiRect.x = squareSize;
-//    subGuiRect.y = 0;
-//    cvGetSubRect(fullGui, &subGui, subGuiRect);
-//    cvCopy(heightGui, &subGui);
-//
-//    cvLine(fullGui, cvPoint(squareSize, 0), cvPoint(squareSize, squareSize), CV_RGB(0, 0, 0), 1);
-//  }
-//  sm_opencvDisplayWrapper::display(guiName, fullGui);
-//  //  cvNamedWindow("ScanMatcher", CV_WINDOW_AUTOSIZE);
-//  //  cvShowImage("ScanMatcher", gui);
-//  //  cvShowImage("ScanMatcher", fullGui);
-//
-//  if (useThreads) {
-//    pthread_mutex_unlock(&rlt_mutex);
-//    pthread_mutex_unlock(&scans_mutex);
-//  }
-//  //  fprintf(stderr,"gui released rlt lock\n");
-//
-//  //  static int frameCount=0;
-//  //  char fname[256];
-//  //  sprintf(fname,"frame_%06d.png",frameCount++);
-//  //  cvSaveImage(fname,squareGui);
-//
-//}
 
 ScanTransform ScanMatcher::matchSuccessive(smPoint * points, unsigned numPoints, sm_laser_type_t laser_type,
     int64_t utime, bool preventAddScan, ScanTransform * prior)
@@ -864,16 +804,6 @@ ScanTransform ScanMatcher::matchSuccessive(smPoint * points, unsigned numPoints,
 
       if (matchingMode == SM_GRID_COORD) {
         sm_tictoc("GradientAscent Polish");
-        //        double sigma[4] = { currentPose.sigma[0], currentPose.sigma[1], currentPose.sigma[3], currentPose.sigma[4] };
-        //        double evals[2];
-        //        double evecs[4];
-        //        CvMat cv_sigma = cvMat(2, 2, CV_64FC1, sigma);
-        //        CvMat cv_evals = cvMat(2, 1, CV_64FC1, evals);
-        //        CvMat cv_evecs = cvMat(2, 2, CV_64FC1, evecs);
-        //        cvEigenVV(&cv_sigma, &cv_evecs, &cv_evals);
-        //        if (evals[0] <= 0 || evals[1] <= 0)
-        //          fprintf(stderr, "ERROR: cov is not P.S.D!\n");
-        //        if (evals[0] < .0075 && evals[1] < .0075) { //only polish if match already confident
         ScanTransform polished = coordAscentMatch(points, numPoints, &currentPose);
         currentPose = polished;
         //        }
@@ -992,3 +922,5 @@ int ScanMatcher::isUsingIPP()
   return 0;
 #endif
 }
+
+}//namespace scanmatch

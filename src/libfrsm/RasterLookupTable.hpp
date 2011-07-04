@@ -20,10 +20,13 @@
 #include <stdint.h>
 #include <vector>
 #include <lcm/lcm.h>
-#include <bot_lcmgl_client/lcmgl.h>
+
 namespace scanmatch {
 
-typedef struct {
+class LutKernel {
+public:
+  LutKernel(double sigma);
+  ~LutKernel();
   int kernel_size;
   uint8_t * square_kernel;
 
@@ -32,7 +35,7 @@ typedef struct {
   uint8_t * line_kernels;
   int line_kernel_stride;
 
-} draw_kernel_t;
+};
 
 class RasterLookupTable {
 public:
@@ -94,6 +97,7 @@ public:
    * @yrange: y-range to be searched in meters
    * @thetarange: theta-range to be searched in radians
    * @dthetastep: step size to use in theta
+   * @hitThresh: threshold for considering a point a "hit"
    * @xSat: return value for whether the best transform was on the x-edge of the search window
    * @ySat: return value for whether the best transform was on the y-edge of the search window
    * @thetaSat: return value for whether the best transform was on the theta-edge of the search window
@@ -102,7 +106,7 @@ public:
    */
   ScanTransform
   evaluate3D(const smPoint * points, const unsigned numPoints, const ScanTransform * prior, double xrange,
-      double yrange, double thetarange, double dthetastep, int * xSat, int *ySat, int * thetaSat);
+      double yrange, double thetarange, double dthetastep, int hitThresh, int * xSat, int *ySat, int * thetaSat);
 
   /**
    * evaluate3D_multiRes:
@@ -115,6 +119,7 @@ public:
    * @yrange: y-range to be searched in meters
    * @thetarange: theta-range to be searched in radians
    * @dthetastep: step size to use in theta
+   * @hitThresh: threshold for considering a point a "hit"
    * @xSat: return value for whether the best transform was on the x-edge of the search window
    * @ySat: return value for whether the best transform was on the y-edge of the search window
    * @thetaSat: return value for whether the best transform was on the theta-edge of the search window
@@ -123,8 +128,8 @@ public:
    */
   ScanTransform
   evaluate3D_multiRes(RasterLookupTable * hi_res, const smPoint * points, const unsigned numPoints,
-      const ScanTransform * prior, double xrange, double yrange, double thetarange, double thetastep, int * xSat,
-      int *ySat, int * thetaSat);
+      const ScanTransform * prior, double xrange, double yrange, double thetarange, double thetastep, int hitThresh,
+      int * xSat, int *ySat, int * thetaSat);
 
   /**
    * getScore:
@@ -141,10 +146,10 @@ public:
 
   /**
    * getNumHits:
-   * get number of points that are given a likelihood above the "hit" threshold
+   * get number of points that are given a likelihood above the @hitThresh threshold
    */
   int
-  getNumHits(const smPoint * points, const unsigned numPoints, const ScanTransform * XYT);
+  getNumHits(const smPoint * points, const unsigned numPoints, const ScanTransform * XYT, int hitThresh);
 
   /**
    * drawRectangle:
@@ -155,18 +160,9 @@ public:
   drawRectangle(double cx, double cy, double x_size, double y_size, double theta, uint8_t *lutSq, int lutSq_size,
       int lutSq_first_zero, double lutSqRange);
 
-  /**
-   * makeLut:
-   * create the lookup table used by the drawRectangle function
-   */
-  static uint8_t *
-  makeLut(int sz, double maxChiSq, double weight, int *lutSq_first_zero);
-
-  //TODO:document me
-  static void makeDrawingKernels(double sigma, draw_kernel_t * kern);
   void drawKernel(int ix, int iy, const uint8_t*kernel, int kernel_width, int kernel_height);
-  void drawBlurredPoint(const smPoint *p, const draw_kernel_t * kern);
-  void drawBlurredLine(const smPoint *p1, const smPoint *p2, const draw_kernel_t * kern);
+  void drawBlurredPoint(const smPoint *p, const LutKernel * kern);
+  void drawBlurredLine(const smPoint *p1, const smPoint *p2, const LutKernel * kern);
 
   /**
    * dumpTable:
@@ -216,7 +212,7 @@ public:
    * readTable:
    * returns the value of the table at pixel ix,iy
    */
-  inline int readTable(int ix, int iy)
+  inline uint8_t readTable(int ix, int iy)
   {
     return distdata[iy * width + ix];
   }
@@ -225,7 +221,7 @@ public:
    * readTable:
    * returns the value of the table at position x,y (in meters)
    */
-  inline int readTable(double x, double y)
+  inline uint8_t readTable(double x, double y)
   {
     int ix, iy;
     worldToTable(x, y, &ix, &iy);
@@ -252,9 +248,18 @@ public:
     writeTable(ix, iy, v);
   }
 
-  void publishMap(lcm_t * lcm, const char * channel, int64_t utime);
-  void drawMapLCMGL(bot_lcmgl_t * lcmgl);
+  /**
+   * RasterLookupTable_save:
+   * declare a friend func with access to all the privates to enable drawing/saving/publishing
+   * of maps from an external
+   */
+  friend void RasterLookupTable_draw_func(void * user);
+  friend void RasterLookupTable_save_func(void * user);
+  friend void RasterLookupTable_pub_func(void * user);
+  friend void * RasterLookupTable_to_msg(void * user);
 
+
+private:
   //extremum of the table in meters
   double x0, y0, x1, y1;
   //resolution of the table
@@ -264,12 +269,6 @@ public:
 
   //the actual occupancy grid data
   uint8_t * distdata;
-
-  //hardcoded parameter
-  static const int hitThresh = 100; // a hit is counted when the rlt score is >=
-  // hitThresh
-
-
 };
 }
 #endif /*RASTERLOOKUPTABLE_H_*/

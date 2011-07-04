@@ -1,12 +1,11 @@
 include_directories(${PROJECT_SOURCE_DIR}/src)
 include_directories(${LCMTYPES_INCLUDE_DIRS})
 
-add_executable(test-scan-matcher test_scan_matcher.cpp rotations.c)
-pods_use_pkg_config_packages(test-scan-matcher scanmatch)
 
-add_executable(scan-matcher scan_matcher.cpp rotations.c)
-pods_use_pkg_config_packages(scan-matcher scanmatch lcm opencv)
-pods_install_executables(scan-matcher)
+add_executable(frsm scan_matcher.cpp)
+target_link_libraries(frsm z)
+pods_use_pkg_config_packages(frsm frsm lcm bot2-core bot2-lcmgl-client)
+pods_install_executables(frsm)
 
 
 
