@@ -22,9 +22,8 @@ void * ScanMatcher_thread_wrapper_func(void * user)
 ScanMatcher::ScanMatcher(double metersPerPixel_, double thetaResolution_, int useMultires_, bool useThreads_,
     bool verbose_) :
 
-  metersPerPixel(metersPerPixel_), thetaResolution(thetaResolution_), useMultiRes(useMultires_), verbose(verbose_),
-      contour_extractor(NULL), rlt(NULL), rltTmp(NULL), rlt_low_res(NULL), rltTmp_low_res(NULL),
-      useThreads(useThreads_), killThread(1)
+    metersPerPixel(metersPerPixel_), thetaResolution(thetaResolution_), useMultiRes(useMultires_), verbose(verbose_), contour_extractor(
+        NULL), rlt(NULL), rltTmp(NULL), rlt_low_res(NULL), rltTmp_low_res(NULL), useThreads(useThreads_), killThread(1)
 {
 
   hitThresh = 100;
@@ -131,9 +130,11 @@ ScanMatcher::~ScanMatcher()
 
   }
 
-  if (lutSq != NULL)
+  if (lutSq != NULL
+    )
     free(lutSq);
-  if (draw_kernels != NULL)
+  if (draw_kernels != NULL
+    )
     delete draw_kernels;
 
 }
@@ -160,14 +161,18 @@ void ScanMatcher::clearScans(bool deleteScans)
     scansToBeProcessed.clear();
   }
   //rlt is no longer valid
-  if (rlt != NULL)
+  if (rlt != NULL
+    )
     delete rlt;
-  if (rltTmp != NULL)
+  if (rltTmp != NULL
+    )
     delete rltTmp;
 
-  if (rlt_low_res != NULL)
+  if (rlt_low_res != NULL
+    )
     delete rlt_low_res;
-  if (rltTmp_low_res != NULL)
+  if (rltTmp_low_res != NULL
+    )
     delete rltTmp_low_res;
 
   rlt = NULL;
@@ -243,7 +248,8 @@ void ScanMatcher::rebuildThreadFunc()
         delete contour_extractor;
         contour_extractor = NULL;
       }
-      if (contour_extractor == NULL)
+      if (contour_extractor == NULL
+        )
         contour_extractor = new ContourExtractor(s->laser_type);
       contour_extractor->findContours(s->ppoints, s->numPoints, s->contours);
 
@@ -370,8 +376,7 @@ void ScanMatcher::rebuildRaster_olson(RasterLookupTable ** rasterTable)
       if (v == 0 && !set_lutSq_first_zero) {
         set_lutSq_first_zero = true;
         lutSq_first_zero = i;
-      }
-      assert(v >= 0);
+      }assert(v >= 0);
       assert(v <= 255);
       lutSq[i] = (uint8_t) v;
     }
@@ -404,8 +409,8 @@ void ScanMatcher::rebuildRaster_olson(RasterLookupTable ** rasterTable)
 
   //  free(lutSq);
 
-
-  if (*rasterTable != NULL)
+  if (*rasterTable != NULL
+    )
     delete *rasterTable;
   *rasterTable = rt;
   return;
@@ -449,7 +454,8 @@ void ScanMatcher::rebuildRaster_blurLine(RasterLookupTable ** rasterTable)
   }
   sm_tictoc("drawBlurLines");
 
-  if (*rasterTable != NULL)
+  if (*rasterTable != NULL
+    )
     delete *rasterTable;
   *rasterTable = rt;
   return;
@@ -567,6 +573,7 @@ ScanTransform ScanMatcher::coordAscentMatch(smPoint * points, unsigned numPoints
           break;
         default:
           assert(false);
+          break;
         }
         testTrans.score = rlt->getScore(points, numPoints, &testTrans);
         if (testTrans.score > currentTrans.score) {
@@ -656,7 +663,8 @@ void ScanMatcher::addScan(Scan *s, bool rebuildNow)
           delete contour_extractor;
           contour_extractor = NULL;
         }
-        if (contour_extractor == NULL)
+        if (contour_extractor == NULL
+          )
           contour_extractor = new ContourExtractor(s->laser_type);
         contour_extractor->findContours(scan->ppoints, scan->numPoints, scan->contours);
         sm_tictoc("findContours"); //      s->drawContours();
@@ -671,7 +679,6 @@ void ScanMatcher::addScan(Scan *s, bool rebuildNow)
     //    rebuildRaster_olson(&rlt);
     //    sm_tictoc("rebuildRaster_olson");
 
-
     //  sm_tictoc("rebuildRaster_blur");
     //  rebuildRaster_blur(&rlt);
     //  sm_tictoc("rebuildRaster_blur");
@@ -680,14 +687,14 @@ void ScanMatcher::addScan(Scan *s, bool rebuildNow)
     //        rebuildRaster_blurLine(&rlt);
     //        sm_tictoc("rebuildRaster_blurLine");
 
-
     sm_tictoc("rebuildRaster");
     rebuildRaster(&rlt);
     sm_tictoc("rebuildRaster");
 
     if (useMultiRes > 0) {
       sm_tictoc("rebuild_lowRes");
-      if (rlt_low_res != NULL)
+      if (rlt_low_res != NULL
+        )
         delete rlt_low_res;
       rlt_low_res = new RasterLookupTable(rlt, downsampleFactor);
       sm_tictoc("rebuild_lowRes");
@@ -895,7 +902,8 @@ ScanTransform ScanMatcher::matchSuccessive(smPoint * points, unsigned numPoints,
   else {
     if (verbose)
       fprintf(stderr, "adding first scan\n");
-    if (prior != NULL)
+    if (prior != NULL
+      )
       memcpy(&currentPose, prior, sizeof(currentPose));
     addScan(points, numPoints, &currentPose, laser_type, utime); //do a blocking add...
 
@@ -923,4 +931,4 @@ int ScanMatcher::isUsingIPP()
 #endif
 }
 
-}//namespace scanmatch
+} //namespace scanmatch
