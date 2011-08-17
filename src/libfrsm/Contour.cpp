@@ -318,7 +318,6 @@ void Contour::simplify(float tol)
 {
   int n = points.size();
   int pv; // misc counters
-  points.reserve(n);
 
   // STAGE 1.  Vertex Reduction within tolerance of prior vertex cluster
   int m = 1;// first point always kept
@@ -366,7 +365,7 @@ void Contour::simplifyDP(float tol, std::vector<smPoint> &v, int j, int k, std::
   float max_dist_to_seg = 0;
   // test each vertex v[i] for max distance from segment v[j]-v[k]
   for (int i = j + 1; i < k; i++) {
-    double dist_to_seg = sm_dist_to_segment(&v[j], &v[j], &v[k]);
+    double dist_to_seg = sm_dist_to_segment(&v[i], &v[j], &v[k]);
     if (dist_to_seg <= max_dist_to_seg)
       continue;
     else {
