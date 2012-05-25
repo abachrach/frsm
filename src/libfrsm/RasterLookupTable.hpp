@@ -1,16 +1,16 @@
 /**
- * SECTION:scanmatch
+ * SECTION:frsm
  * @title: RasterLookupTable
  * @short_description: Local occupancy gridmap for scan matching
- * @include: bot/scanmatch/RasterLookupTable.hpp
+ * @include: bot/frsm/RasterLookupTable.hpp
  *
- * Maintain an occupancy gridmap for scanmatching.
+ * Maintain an occupancy gridmap for laser scan-matching.
  *
  * The internal functions for matching a scan are contained in this class.
  *
  *
- * Linking: -lscanmatch
- * namespace: scanmatch
+ * Linking: -lfrsm
+ * namespace: frsm
  */
 
 #ifndef RASTERLOOKUPTABLE_H_
@@ -21,7 +21,7 @@
 #include <vector>
 #include <lcm/lcm.h>
 
-namespace scanmatch {
+namespace frsm {
 
 class LutKernel {
 public:
@@ -83,7 +83,7 @@ public:
    *
    */
   ScanTransform
-  evaluate2D(const smPoint * points, const unsigned numPoints, const ScanTransform * XYT0, const ScanTransform * prior,
+  evaluate2D(const frsmPoint * points, const unsigned numPoints, const ScanTransform * XYT0, const ScanTransform * prior,
       int ixrange, int iyrange, int ixdim, int iydim, float * scores, int * bestScoreIndX, int *bestScoreIndY);
 
   /**
@@ -105,7 +105,7 @@ public:
    *
    */
   ScanTransform
-  evaluate3D(const smPoint * points, const unsigned numPoints, const ScanTransform * prior, double xrange,
+  evaluate3D(const frsmPoint * points, const unsigned numPoints, const ScanTransform * prior, double xrange,
       double yrange, double thetarange, double dthetastep, int hitThresh, int * xSat, int *ySat, int * thetaSat);
 
   /**
@@ -127,7 +127,7 @@ public:
    *
    */
   ScanTransform
-  evaluate3D_multiRes(RasterLookupTable * hi_res, const smPoint * points, const unsigned numPoints,
+  evaluate3D_multiRes(RasterLookupTable * hi_res, const frsmPoint * points, const unsigned numPoints,
       const ScanTransform * prior, double xrange, double yrange, double thetarange, double thetastep, int hitThresh,
       int * xSat, int *ySat, int * thetaSat);
 
@@ -136,20 +136,20 @@ public:
    * evaluate the score of the transform XYT0
    */
   float
-  getScore(const smPoint * points, const unsigned numPoints, const ScanTransform * XYT0);
+  getScore(const frsmPoint * points, const unsigned numPoints, const ScanTransform * XYT0);
   /**
    * getScoreDump:
    * evaluate the score of the transform XYT0, and dump individual point scores to a file
    */
   float
-  getScoreDump(const smPoint * points, const unsigned numPoints, const ScanTransform * XYT0, const char * name);
+  getScoreDump(const frsmPoint * points, const unsigned numPoints, const ScanTransform * XYT0, const char * name);
 
   /**
    * getNumHits:
    * get number of points that are given a likelihood above the @hitThresh threshold
    */
   int
-  getNumHits(const smPoint * points, const unsigned numPoints, const ScanTransform * XYT, int hitThresh);
+  getNumHits(const frsmPoint * points, const unsigned numPoints, const ScanTransform * XYT, int hitThresh);
 
   /**
    * drawRectangle:
@@ -161,8 +161,8 @@ public:
       int lutSq_first_zero, double lutSqRange);
 
   void drawKernel(int ix, int iy, const uint8_t*kernel, int kernel_width, int kernel_height);
-  void drawBlurredPoint(const smPoint *p, const LutKernel * kern);
-  void drawBlurredLine(const smPoint *p1, const smPoint *p2, const LutKernel * kern);
+  void drawBlurredPoint(const frsmPoint *p, const LutKernel * kern);
+  void drawBlurredLine(const frsmPoint *p1, const frsmPoint *p2, const LutKernel * kern);
 
   /**
    * dumpTable:
@@ -177,8 +177,8 @@ public:
    */
   inline void worldToTable(double x, double y, int * ix, int * iy)
   {
-    *ix = sm_clamp(round((x - x0) * pixelsPerMeter), 0, width - 1);
-    *iy = sm_clamp(round((y - y0) * pixelsPerMeter), 0, height - 1);
+    *ix = frsm_clamp(round((x - x0) * pixelsPerMeter), 0, width - 1);
+    *iy = frsm_clamp(round((y - y0) * pixelsPerMeter), 0, height - 1);
   }
 
   /**

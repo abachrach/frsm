@@ -7,7 +7,7 @@
 #include <getopt.h>
 
 #include <lcm/lcm.h>
-#include <frsm/ScanMatcher.hpp>
+#include <frsm/FRSM.hpp>
 #include <lcmtypes/frsm_rigid_transform_2d_t.h>
 #include <lcmtypes/frsm_planar_lidar_t.h>
 #include <lcmtypes/frsm_pose_t.h>
@@ -20,7 +20,7 @@
 #include <GL/gl.h>
 
 using namespace std;
-using namespace scanmatch;
+using namespace frsm;
 
 typedef struct {
   lcm_t * lcm;
@@ -32,7 +32,7 @@ typedef struct {
   char * lidar_chan;
   char * odom_chan;
   char * pose_chan;
-  sm_laser_type_t laser_type;
+  frsm_laser_type_t laser_type;
   int beam_skip; //downsample ranges by only taking 1 out of every beam_skip points
   double spatialDecimationThresh; //don't discard a point if its range is more than this many std devs from the mean range (end of hallway)
   double maxRange; //discard beams with reading further than this value
@@ -53,7 +53,7 @@ typedef struct {
 //where all the work is done
 ////////////////////////////////////////////////////////////////////
 
-namespace scanmatch {
+namespace frsm {
 
 void RasterLookupTable_draw_func(void * user)
 {
@@ -100,14 +100,14 @@ void ScanMatcher_draw_func(void * user)
       bot_lcmgl_begin(lcmgl, GL_LINE_STRIP);
       bot_lcmgl_color3f(lcmgl, 0, 1, 0);
       for (unsigned i = 0; i < s->contours[cidx]->points.size(); i++) {
-        smPoint p0 = s->contours[cidx]->points[i];
+        frsmPoint p0 = s->contours[cidx]->points[i];
         bot_lcmgl_vertex3f(lcmgl, p0.x, p0.y, 0);
       }
       bot_lcmgl_end(lcmgl);
       bot_lcmgl_color3f(lcmgl, 0, 1, 1);
       bot_lcmgl_begin(lcmgl, GL_POINTS); //TODO: Is there a way to do this all at once?
       for (unsigned i = 0; i < s->contours[cidx]->points.size(); i++) {
-        smPoint p0 = s->contours[cidx]->points[i];
+        frsmPoint p0 = s->contours[cidx]->points[i];
         bot_lcmgl_vertex3f(lcmgl, p0.x, p0.y, 0);
       }
       bot_lcmgl_end(lcmgl);
@@ -157,7 +157,7 @@ void * RasterLookupTable_to_msg(void * user)
 
 }
 
-void draw(app_t * app, smPoint * points, unsigned numPoints, const ScanTransform * T)
+void draw(app_t * app, frsmPoint * points, unsigned numPoints, const ScanTransform * T)
 {
   ScanMatcher_draw_func(app);
 
@@ -202,14 +202,14 @@ static void laser_handler(const lcm_recv_buf_t *rbuf __attribute__((unused)), co
 static void process_laser(const frsm_planar_lidar_t * msg, void * user  __attribute__((unused)))
 {
   app_t * app = (app_t *) user;
-  sm_tictoc("process_laser");
-  sm_tictoc("recToSend");
+  frsm_tictoc("process_laser");
+  frsm_tictoc("recToSend");
 
   ////////////////////////////////////////////////////////////////////
   //Project ranges into points, and decimate points so we don't have too many
   ////////////////////////////////////////////////////////////////////
-  smPoint * points = (smPoint *) calloc(msg->nranges, sizeof(smPoint));
-  int numValidPoints = sm_projectRangesAndDecimate(app->beam_skip, app->spatialDecimationThresh, msg->ranges,
+  frsmPoint * points = (frsmPoint *) calloc(msg->nranges, sizeof(frsmPoint));
+  int numValidPoints = frsm_projectRangesAndDecimate(app->beam_skip, app->spatialDecimationThresh, msg->ranges,
       msg->nranges, msg->rad0, msg->radstep, points, app->maxRange, app->validBeamAngles[0], app->validBeamAngles[1]);
   if (numValidPoints < 30) {
     fprintf(stderr, "WARNING! NOT ENOUGH VALID POINTS! numValid=%d\n", numValidPoints);
@@ -251,12 +251,12 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user  __attrib
       rel_odom.utime = cur_odom.utime;
       rel_odom.utime_prev = app->prev_odom.utime;
       double delta[2];
-      sm_vector_sub_2d(cur_odom.pos, app->prev_odom.pos, delta);
+      frsm_vector_sub_2d(cur_odom.pos, app->prev_odom.pos, delta);
 
-      sm_rotate2D(delta, -cur_odom.theta, rel_odom.pos);
-      rel_odom.theta = sm_angle_subtract(cur_odom.theta, app->prev_odom.theta);
+      frsm_rotate2D(delta, -cur_odom.theta, rel_odom.pos);
+      rel_odom.theta = frsm_angle_subtract(cur_odom.theta, app->prev_odom.theta);
       //rotate the covariance estimate to body frame
-      sm_rotateCov2D(cur_odom.cov, -cur_odom.theta, rel_odom.cov);
+      frsm_rotateCov2D(cur_odom.cov, -cur_odom.theta, rel_odom.cov);
       frsm_rigid_transform_2d_t_publish(app->lcm, app->odom_chan, &rel_odom);
     }
 
@@ -274,7 +274,7 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user  __attrib
 
     frsm_pose_t_publish(app->lcm, app->pose_chan, &pose);
   }
-  sm_tictoc("recToSend");
+  frsm_tictoc("recToSend");
 
   app->prev_odom = cur_odom;
 
@@ -282,8 +282,8 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user  __attrib
   //Print current position periodically!
   ////////////////////////////////////////////////////////////////////
   static double lastPrintTime = 0;
-  if (sm_get_time() - lastPrintTime > 2.0) {
-    lastPrintTime = sm_get_time();
+  if (frsm_get_time() - lastPrintTime > 2.0) {
+    lastPrintTime = frsm_get_time();
     //print out current state
     fprintf(stderr, "x=%+7.3f y=%+7.3f t=%+7.3f\t score=%f hits=%.2f sx=%.2f sxy=%.2f sy=%.2f st=%.2f, numValid=%d\n",
         r.x, r.y, r.theta, r.score, (double) r.hits / (double) numValidPoints, r.sigma[0], r.sigma[1], r.sigma[4],
@@ -294,11 +294,11 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user  __attrib
   //Do drawing periodically!
   ////////////////////////////////////////////////////////////////////
   static double lastDrawTime = 0;
-  if (app->do_drawing && sm_get_time() - lastDrawTime > .2) {
-    lastDrawTime = sm_get_time();
-    sm_tictoc("drawing");
+  if (app->do_drawing && frsm_get_time() - lastDrawTime > .2) {
+    lastDrawTime = frsm_get_time();
+    frsm_tictoc("drawing");
     draw(app, points, numValidPoints, &r);
-    sm_tictoc("drawing");
+    frsm_tictoc("drawing");
   }
 
   ////////////////////////////////////////////////////////////////////
@@ -306,14 +306,14 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user  __attrib
   ////////////////////////////////////////////////////////////////////
 
   free(points);
-  sm_tictoc("process_laser");
+  frsm_tictoc("process_laser");
 
 }
 
 void app_destroy(app_t *app)
 {
   // dump timing stats
-  sm_tictoc(NULL);
+  frsm_tictoc(NULL);
 
   if (app) {
     if (app->lidar_chan)
@@ -523,12 +523,12 @@ int main(int argc, char *argv[])
   }
 
   //initialize tictoc for threading
-  sm_tictoc_init();
+  frsm_tictoc_init();
 
   //hardcoded scan matcher params
   double metersPerPixel = .02; //translational resolution for the brute force search
   double thetaResolution = .01; //angular step size for the brute force search
-  sm_incremental_matching_modes_t matchingMode = SM_COORD_ONLY; //use gradient descent to improve estimate after brute force search
+  frsm_incremental_matching_modes_t matchingMode = SM_COORD_ONLY; //use gradient descent to improve estimate after brute force search
   int useMultires = 3; // low resolution will have resolution metersPerPixel * 2^useMultiRes
 
   double initialSearchRangeXY = .15; //nominal range that will be searched over
@@ -557,7 +557,6 @@ int main(int argc, char *argv[])
 
   ScanTransform startPose;
   memset(&startPose, 0, sizeof(startPose));
-  startPose.theta = M_PI / 2; //set the scan matcher to start at pi/2... cuz it looks better
   app->sm->initSuccessiveMatchingParams(maxNumScans, initialSearchRangeXY, maxSearchRangeXY, initialSearchRangeTheta,
       maxSearchRangeTheta, matchingMode, addScanHitThresh, stationaryMotionModel, motionModelPriorWeight, &startPose);
 

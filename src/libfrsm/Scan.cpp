@@ -7,7 +7,7 @@
 #include "Scan.hpp"
 
 using namespace std;
-namespace scanmatch{
+namespace frsm{
 
 Scan::Scan() :
     points(NULL), ppoints(NULL), numPoints(0), utime(-1), laser_type(
@@ -16,20 +16,20 @@ Scan::Scan() :
     memset(&T, 0, sizeof(T));
 }
 
-Scan::Scan(int numP, smPoint * points_, ScanTransform T_,
-        sm_laser_type_t laser_type_, int64_t utime_, bool buildContours) :
+Scan::Scan(int numP, frsmPoint * points_, ScanTransform T_,
+        frsm_laser_type_t laser_type_, int64_t utime_, bool buildContours) :
     numPoints(numP), utime(utime_), laser_type(laser_type_)
 {
-    points = (smPoint *) malloc(numPoints * sizeof(smPoint));
-    memcpy(points, points_, numPoints * sizeof(smPoint));
-    ppoints = (smPoint *) malloc(numPoints * sizeof(smPoint));
+    points = (frsmPoint *) malloc(numPoints * sizeof(frsmPoint));
+    memcpy(points, points_, numPoints * sizeof(frsmPoint));
+    ppoints = (frsmPoint *) malloc(numPoints * sizeof(frsmPoint));
     memset(&T, 0, sizeof(T));
     applyTransform(T_);
     if (buildContours) {
         ContourExtractor * cextractor = new ContourExtractor(laser_type);
-        sm_tictoc("findContours");
+        frsm_tictoc("findContours");
         cextractor->findContours(ppoints, numPoints, contours);
-        sm_tictoc("findContours");
+        frsm_tictoc("findContours");
         //      s->drawContours();
         delete cextractor;
     }
@@ -47,4 +47,4 @@ Scan::~Scan()
         free(points);
 }
 
-}//namespace scanmatch
+}//namespace frsm

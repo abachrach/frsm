@@ -1,13 +1,13 @@
 /**
- * SECTION:scanmatch
+ * SECTION:frsm
  * @title: Scan
  * @short_description: Storage class for keeping track of relevant info associated with a scan.
- * @include: bot/scanmatch/Scan.hpp
+ * @include: bot/frsm/Scan.hpp
  *
  * These parameters work pretty well with a hokuyo UTM, but others might be better.
  *
- * Linking: -lscanmatch
- * namespace: scanmatch
+ * Linking: -lfrsm
+ * namespace: frsm
  */
 
 #ifndef SCAN_H_
@@ -18,17 +18,17 @@
 #include <list>
 #include "ScanMatchingUtils.hpp"
 #include <pthread.h>
-#include <values.h>
+#include <float.h>
 
-namespace scanmatch
+namespace frsm
 {
 
 class Scan
 {
 public:
 
-    Scan(int numP, smPoint * points_, ScanTransform T_,
-            sm_laser_type_t laser_type_, int64_t utime_, bool buildContours =
+    Scan(int numP, frsmPoint * points_, ScanTransform T_,
+            frsm_laser_type_t laser_type_, int64_t utime_, bool buildContours =
                     false);
     Scan();
     ~Scan();
@@ -43,11 +43,11 @@ public:
     /**
      * the raw points in the laser's coordinate frame
      */
-    smPoint * points;
+    frsmPoint * points;
     /**
      * the projected points aftering being transformed by T.
      */
-    smPoint * ppoints;
+    frsmPoint * ppoints;
     /**
      * timestamp for laser scan.
      */
@@ -56,7 +56,7 @@ public:
     /**
      * The type of laser that was used to create this scan. (needed for finding contours)
      */
-    sm_laser_type_t laser_type;
+    frsm_laser_type_t laser_type;
     /**
      *  The set of piecewise linear contours, (projected by T)
      */
@@ -73,13 +73,13 @@ public:
     inline void
     applyTransform(ScanTransform &T_)
     {
-        sm_transformPoints(&T_, points, numPoints, ppoints);
+        frsm_transformPoints(&T_, points, numPoints, ppoints);
         if (!contours.empty()) {
             double ct_diff = cos(T_.theta - T.theta), st_diff = sin(T_.theta
                     - T.theta);
             for (unsigned int i = 0; i < contours.size(); i++) {
                 for (unsigned int j = 0; j < contours[i]->points.size(); j++) {
-                    smPoint p = contours[i]->points[j];
+                    frsmPoint p = contours[i]->points[j];
                     p.x -= T.x;
                     p.y -= T.y;
                     contours[i]->points[j].x = T_.x + ct_diff * p.x - st_diff

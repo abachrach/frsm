@@ -1,16 +1,16 @@
 /**
- * SECTION:scanmatch
+ * SECTION:frsm
  * @title: Contour
  * @short_description: Extract piecewise linear contours from a laser scan
- * @include: bot/scanmatch/ScanMatcher.hpp
+ * @include: frsm/Contour.hpp
  *
  * Iteratively connect nearby points to extract a set of piecewise linear
  * contours from a laser scan.
  *
  * These parameters work pretty well with a hokuyo UTM, but others might be better.
  *
- * Linking: -lscanmatch
- * namespace: scanmatch
+ * Linking: -lfrsm
+ * namespace: frsm
  */
 
 #ifndef CONTOUR_H_
@@ -18,7 +18,7 @@
 #include <vector>
 #include "ScanMatchingUtils.hpp"
 
-namespace scanmatch {
+namespace frsm {
 
 /*
  * Utility class for keeping track of which points are part of which contour
@@ -30,7 +30,7 @@ public:
   {
 
   }
-  smPoint point;
+  frsmPoint point;
   int left; // index of our left neighbor (whose idx is smaller)
   int right; // index of our right neighbor (whose idx is bigger)
   int contour; // which contour # we are part of.
@@ -102,18 +102,18 @@ public:
    */
   void simplify(float tol);
 private:
-  static void simplifyDP(float tol, std::vector<smPoint> &v, int j, int k, std::vector<bool> &mk);
+  static void simplifyDP(float tol, std::vector<frsmPoint> &v, int j, int k, std::vector<bool> &mk);
 
   /**
    * The list of points that make up this contour
    */
 public:
-  std::vector<smPoint> points;
+  std::vector<frsmPoint> points;
 };
 
 class ContourExtractor {
 public:
-  ContourExtractor(sm_laser_type_t laser_type = SM_HOKUYO_UTM);
+  ContourExtractor(frsm_laser_type_t laser_type = SM_HOKUYO_UTM);
   virtual
   ~ContourExtractor();
 
@@ -130,7 +130,7 @@ public:
    * contours extracted from the laser scan.
    */
   void
-  findContours(smPoint * points, unsigned numPoints, std::vector<Contour*> &contours);
+  findContours(frsmPoint * points, unsigned numPoints, std::vector<Contour*> &contours);
 
 private:
   /**
@@ -151,7 +151,7 @@ public:
   /*
    * Which laser type are we set for
    */
-  sm_laser_type_t laserType;
+  frsm_laser_type_t laserType;
 
   /**
    * When adding a point to a contour, it's never okay to add a point farther

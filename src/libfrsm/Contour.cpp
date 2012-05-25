@@ -5,13 +5,13 @@
 #include <queue>
 #include <string>
 #include <math.h>
-#include <values.h>
+#include <float.h>
 #include <assert.h>
 
 using namespace std;
-namespace scanmatch{
+namespace frsm{
 
-ContourExtractor::ContourExtractor(sm_laser_type_t laser_type):
+ContourExtractor::ContourExtractor(frsm_laser_type_t laser_type):
     laserType(laser_type)
 {
   switch (laser_type) {
@@ -68,7 +68,7 @@ ContourExtractor::~ContourExtractor()
 
 }
 
-void ContourExtractor::findContours(smPoint * points, unsigned numValidPoints, std::vector<Contour*> &contours)
+void ContourExtractor::findContours(frsmPoint * points, unsigned numValidPoints, std::vector<Contour*> &contours)
 {
 
   priority_queue<Join*, std::vector<Join*>, JoinCompare> joins;
@@ -254,14 +254,14 @@ ContourExtractor::findClosestPoint(std::vector<PointRecord> &pointrecs, int pare
     return NULL;
 
   int bestvictim = -1;
-  double bestcost = MAXDOUBLE;
+  double bestcost = DBL_MAX;
 
   // how far a span was there in this contour between the last two points?
 
   // parent better not already have children on both left & right.
   assert(!(pointrecs[parent].left >= 0 && pointrecs[parent].right >= 0));
 
-  smPoint parentp = pointrecs[parent].point;
+  frsmPoint parentp = pointrecs[parent].point;
   for (int i = a; i <= b; i++) {
     PointRecord victim = pointrecs[i];
     if (i == parent)
@@ -271,7 +271,7 @@ ContourExtractor::findClosestPoint(std::vector<PointRecord> &pointrecs, int pare
     if (victim.right >= 0 && parent > i)
       continue;
 
-    double cost = sm_dist(&parentp, &victim.point);
+    double cost = frsm_dist(&parentp, &victim.point);
 
     if (cost <= alwaysAcceptDistance) {// && i == parent + 1) {
       // stop looking.
@@ -282,7 +282,7 @@ ContourExtractor::findClosestPoint(std::vector<PointRecord> &pointrecs, int pare
     }
 
     if (cost < bestcost && cost < maxAdjacentDistance) {
-      //      double angularDistance = fabs(sm_angle_subtract(atan2(parentp.y, parentp.x), atan2(victim.point.y, victim.point.x)));
+      //      double angularDistance = fabs(frsm_angle_subtract(atan2(parentp.y, parentp.x), atan2(victim.point.y, victim.point.x)));
       //
       //      if (angularDistance > maxAdjacentAngularDistance) {
       //        printf("rejected due to Angular distance\n");
@@ -322,7 +322,7 @@ void Contour::simplify(float tol)
   // STAGE 1.  Vertex Reduction within tolerance of prior vertex cluster
   int m = 1;// first point always kept
   for (int i = 1, pv = 0; i < n - 1; i++) {
-    if (sm_dist(&points[i], &points[pv]) < tol)
+    if (frsm_dist(&points[i], &points[pv]) < tol)
       continue;
     points[m] = points[i];
     pv = m++;
@@ -355,7 +355,7 @@ void Contour::simplify(float tol)
 //            v[] = polyline array of vertex points
 //            j,k = indices for the subchain v[j] to v[k]
 //    Output: mk[] = array of markers matching vertex array v[]
-void Contour::simplifyDP(float tol, std::vector<smPoint> &v, int j, int k, std::vector<bool> &mk)
+void Contour::simplifyDP(float tol, std::vector<frsmPoint> &v, int j, int k, std::vector<bool> &mk)
 {
   if (k <= j + 1) // there is nothing to simplify
     return;
@@ -365,7 +365,7 @@ void Contour::simplifyDP(float tol, std::vector<smPoint> &v, int j, int k, std::
   float max_dist_to_seg = 0;
   // test each vertex v[i] for max distance from segment v[j]-v[k]
   for (int i = j + 1; i < k; i++) {
-    double dist_to_seg = sm_dist_to_segment(&v[i], &v[j], &v[k]);
+    double dist_to_seg = frsm_dist_to_segment(&v[i], &v[j], &v[k]);
     if (dist_to_seg <= max_dist_to_seg)
       continue;
     else {
@@ -388,4 +388,4 @@ void Contour::simplifyDP(float tol, std::vector<smPoint> &v, int j, int k, std::
 //===================================================================
 
 
-}//namespace scanmatch
+}//namespace frsm

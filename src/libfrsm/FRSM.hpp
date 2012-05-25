@@ -1,16 +1,15 @@
 /**
- * SECTION:scanmatch
+ * SECTION:frsm
  * @title: ScanMatcher
  * @short_description: Class for peforming scan matching of 2D laser scans
- * @include: bot/scanmatch/RasterLookupTable.hpp
  *
  * A fast and accurate scan matching module for aligning 2D laser scans.
  *
- * The scan matcher maintains a sliding window local occupancy gridmap for scanmatching.
+ * The scan matcher maintains a sliding window local occupancy gridmap for laser scan-matching.
  *
  *
- * Linking: -lscanmatch
- * namespace: scanmatch
+ * Linking: -lfrsm
+ * namespace: frsm
  */
 
 #ifndef SCANMATCHER_H_
@@ -22,9 +21,9 @@
 #include <vector>
 #include <list>
 #include <pthread.h>
-#include <values.h>
+#include <float.h>
 
-namespace scanmatch {
+namespace frsm {
 /*
  * matchingMode indicates which type of matching should be applied
  * SM_GRID_ONLY   - don't run coordinate ascent
@@ -39,7 +38,7 @@ typedef enum {
   SM_COORD_ONLY = 4,
   SM_Y_COORD_ONLY = 5
 //don't search in x (for height matching)
-} sm_incremental_matching_modes_t;
+} frsm_incremental_matching_modes_t;
 
 class ScanMatcher {
 public:
@@ -78,7 +77,7 @@ public:
    */
   void
   initSuccessiveMatchingParams(unsigned int maxNumScans_, double initialSearchRangeXY_, double maxSearchRangeXY_,
-      double initialSearchRangeTheta_, double maxSearchRangeTheta_, sm_incremental_matching_modes_t matchingMode_,
+      double initialSearchRangeTheta_, double maxSearchRangeTheta_, frsm_incremental_matching_modes_t matchingMode_,
       double addScanHitThresh_, bool stationaryMotionModel_, double motionModelPriorWeight_, ScanTransform * startPose);
 
   virtual
@@ -109,7 +108,7 @@ public:
    * Returns: a ScanTransform containing the best alignment for the input set of point
    */
   ScanTransform
-  matchSuccessive(smPoint * points, unsigned numPoints, sm_laser_type_t laser_type, int64_t utime, bool preventAddScan =
+  matchSuccessive(frsmPoint * points, unsigned numPoints, frsm_laser_type_t laser_type, int64_t utime, bool preventAddScan =
       false, ScanTransform * prior = NULL);
   /*
    * gridMatch:
@@ -132,7 +131,7 @@ public:
    * Returns: a ScanTransform containing the best alignment for the input set of point
    */
   ScanTransform
-  gridMatch(smPoint * points, unsigned numPoints, ScanTransform * prior, double xRange, double yRange,
+  gridMatch(frsmPoint * points, unsigned numPoints, ScanTransform * prior, double xRange, double yRange,
       double thetaRange, int * xSat = NULL, int *ySat = NULL, int * thetaSat = NULL);
 
   /*
@@ -146,7 +145,7 @@ public:
    *
    */
   ScanTransform
-  coordAscentMatch(smPoint * points, unsigned numPoints, ScanTransform * startPoint);
+  coordAscentMatch(frsmPoint * points, unsigned numPoints, ScanTransform * startPoint);
 
   /*
    * addScanToBeProcessed:
@@ -162,7 +161,7 @@ public:
    *
    */
   void
-  addScanToBeProcessed(smPoint * points, unsigned numPoints, ScanTransform * T, sm_laser_type_t laser_type,
+  addScanToBeProcessed(frsmPoint * points, unsigned numPoints, ScanTransform * T, frsm_laser_type_t laser_type,
       int64_t utime);
 
   /*
@@ -178,7 +177,7 @@ public:
    *     the scan will just be added to the list without touching the occupancy map
    */
   void
-  addScan(smPoint * points, unsigned numPoints, ScanTransform *T, sm_laser_type_t laser_type, int64_t utime,
+  addScan(frsmPoint * points, unsigned numPoints, ScanTransform *T, frsm_laser_type_t laser_type, int64_t utime,
       bool rebuildNow = true);
 
   /*
@@ -311,7 +310,7 @@ public:
   /*
    * indicates which type of matching should be applied
    */
-  sm_incremental_matching_modes_t matchingMode;
+  frsm_incremental_matching_modes_t matchingMode;
 
   /*
    * indicates weather we want to use the stationary motion model instead of the usual constant velocity motion model.

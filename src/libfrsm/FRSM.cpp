@@ -1,6 +1,5 @@
-#include "ScanMatcher.hpp"
+#include "FRSM.hpp"
 #include <stdio.h>
-#include <values.h>
 #include <unistd.h>
 #include "RasterLookupTable.hpp"
 #include "Contour.hpp"
@@ -9,7 +8,7 @@
 #include <assert.h>
 
 using namespace std;
-namespace scanmatch {
+namespace frsm {
 
 void * ScanMatcher_thread_wrapper_func(void * user)
 {
@@ -51,7 +50,7 @@ ScanMatcher::ScanMatcher(double metersPerPixel_, double thetaResolution_, int us
 
   //threading stuff
   if (useThreads) {
-    //remember to make sure that sm_tictoc gets initialized
+    //remember to make sure that frsm_tictoc gets initialized
     killThread = 0;
 
     /* Initialize mutex and condition variable objects */
@@ -67,7 +66,7 @@ ScanMatcher::ScanMatcher(double metersPerPixel_, double thetaResolution_, int us
 
 void ScanMatcher::initSuccessiveMatchingParams(unsigned int maxNumScans_, double initialSearchRangeXY_,
     double maxSearchRangeXY_, double initialSearchRangeTheta_, double maxSearchRangeTheta_,
-    sm_incremental_matching_modes_t matchingMode_, double addScanHitThresh_, bool stationaryMotionModel_,
+    frsm_incremental_matching_modes_t matchingMode_, double addScanHitThresh_, bool stationaryMotionModel_,
     double motionModelPriorWeight_, ScanTransform * startPose)
 {
 
@@ -242,7 +241,7 @@ void ScanMatcher::rebuildThreadFunc()
     it = scans.end(); //save the current end for drawing the new scans
     while (!scansBeingProcessed.empty()) {
       Scan * s = scansBeingProcessed.front();
-      sm_tictoc("findContours");
+      frsm_tictoc("findContours");
 
       if (contour_extractor != NULL && contour_extractor->laserType != s->laser_type) {
         delete contour_extractor;
@@ -253,21 +252,21 @@ void ScanMatcher::rebuildThreadFunc()
         contour_extractor = new ContourExtractor(s->laser_type);
       contour_extractor->findContours(s->ppoints, s->numPoints, s->contours);
 
-      sm_tictoc("findContours");
+      frsm_tictoc("findContours");
       //            s->drawContours(1000,100);
 
       scans.push_back(s);
       scansBeingProcessed.pop_front();
     }
 
-    sm_tictoc("rebuildRaster");
+    frsm_tictoc("rebuildRaster");
     rebuildRaster(&rltTmp); //rebuild the raster in the tmp
-    sm_tictoc("rebuildRaster");
+    frsm_tictoc("rebuildRaster");
 
     if (useMultiRes > 0) {
-      sm_tictoc("rebuild_lowRes");
+      frsm_tictoc("rebuild_lowRes");
       rltTmp_low_res = new RasterLookupTable(rltTmp, downsampleFactor);
-      sm_tictoc("rebuild_lowRes");
+      frsm_tictoc("rebuild_lowRes");
     }
 
     //swap rltTmp with rlt to put it in use
@@ -309,19 +308,19 @@ void ScanMatcher::rebuildThreadFunc()
 
 void ScanMatcher::computeBounds(double *minx, double *miny, double *maxx, double *maxy)
 {
-  *minx = MAXDOUBLE;
-  *maxx = -MAXDOUBLE;
-  *miny = MAXDOUBLE;
-  *maxy = -MAXDOUBLE;
+  *minx = DBL_MAX;
+  *maxx = -DBL_MAX;
+  *miny = DBL_MAX;
+  *maxy = -DBL_MAX;
 
-  sm_tictoc("rebuild_bounds");
+  frsm_tictoc("rebuild_bounds");
   // Compute bounds of the scans.
   list<Scan *>::iterator it;
   for (it = scans.begin(); it != scans.end(); ++it) {
     Scan * s = *it;
     for (unsigned cidx = 0; cidx < s->contours.size(); cidx++) {
       for (unsigned i = 0; i < s->contours[cidx]->points.size(); i++) {
-        smPoint p = s->contours[cidx]->points[i];
+        frsmPoint p = s->contours[cidx]->points[i];
 
         *minx = fmin(*minx, p.x);
         *maxx = fmax(*maxx, p.x);
@@ -330,7 +329,7 @@ void ScanMatcher::computeBounds(double *minx, double *miny, double *maxx, double
       }
     }
   }
-  sm_tictoc("rebuild_bounds");
+  frsm_tictoc("rebuild_bounds");
 
 }
 
@@ -395,10 +394,10 @@ void ScanMatcher::rebuildRaster_olson(RasterLookupTable ** rasterTable)
     Scan * s = *it;
     for (unsigned cidx = 0; cidx < s->contours.size(); cidx++) {
       for (unsigned i = 0; i + 1 < s->contours[cidx]->points.size(); i++) {
-        smPoint p0 = s->contours[cidx]->points[i];
-        smPoint p1 = s->contours[cidx]->points[i + 1];
+        frsmPoint p0 = s->contours[cidx]->points[i];
+        frsmPoint p1 = s->contours[cidx]->points[i + 1];
 
-        double length = sm_dist(&p0, &p1);
+        double length = frsm_dist(&p0, &p1);
 
         rt->drawRectangle((p0.x + p1.x) / 2, (p0.y + p1.y) / 2, length, 0, atan2(p1.y - p0.y, p1.x - p0.x), lutSq, 512,
             lutSq_first_zero, lutSqRange);
@@ -421,8 +420,8 @@ void ScanMatcher::drawBlurredScan(RasterLookupTable * rt, Scan * s)
   for (unsigned cidx = 0; cidx < s->contours.size(); cidx++) {
     if (s->contours[cidx]->points.size() >= 2) {
       for (unsigned i = 0; i < s->contours[cidx]->points.size() - 1; i++) {
-        const smPoint &p0 = s->contours[cidx]->points[i];
-        const smPoint &p1 = s->contours[cidx]->points[i + 1];
+        const frsmPoint &p0 = s->contours[cidx]->points[i];
+        const frsmPoint &p1 = s->contours[cidx]->points[i + 1];
         rt->drawBlurredPoint(&p0, draw_kernels);
         rt->drawBlurredLine(&p0, &p1, draw_kernels);
       }
@@ -440,19 +439,19 @@ void ScanMatcher::rebuildRaster_blurLine(RasterLookupTable ** rasterTable)
 
   double margin = fmax(.5, 0.1 * fmax(maxx - minx, maxy - miny));
 
-  sm_tictoc("rebuild_alloc");
+  frsm_tictoc("rebuild_alloc");
   RasterLookupTable * rt = new RasterLookupTable(minx - margin, miny - margin, maxx + margin, maxy + margin,
       metersPerPixel, downsampleFactor);
-  sm_tictoc("rebuild_alloc");
+  frsm_tictoc("rebuild_alloc");
 
-  sm_tictoc("drawBlurLines");
+  frsm_tictoc("drawBlurLines");
   // draw each scan.
   list<Scan *>::iterator it;
   for (it = scans.begin(); it != scans.end(); ++it) {
     Scan * s = *it;
     drawBlurredScan(rt, s);
   }
-  sm_tictoc("drawBlurLines");
+  frsm_tictoc("drawBlurLines");
 
   if (*rasterTable != NULL
     )
@@ -461,7 +460,7 @@ void ScanMatcher::rebuildRaster_blurLine(RasterLookupTable ** rasterTable)
   return;
 }
 
-ScanTransform ScanMatcher::gridMatch(smPoint * points, unsigned numPoints, ScanTransform * prior, double xRange,
+ScanTransform ScanMatcher::gridMatch(frsmPoint * points, unsigned numPoints, ScanTransform * prior, double xRange,
     double yRange, double thetaRange, int * xSat, int *ySat, int * thetaSat)
 {
   if (useThreads)
@@ -483,18 +482,18 @@ ScanTransform ScanMatcher::gridMatch(smPoint * points, unsigned numPoints, ScanT
   // Here's where we actually do a scan match!
   ScanTransform r;
   if (useMultiRes <= 0) {
-    sm_tictoc("evaluate3D");
+    frsm_tictoc("evaluate3D");
     r = rlt->evaluate3D(points, numPoints, prior, xRange, yRange, thetaRange, thetaResolution, hitThresh, xSat, ySat,
         thetaSat);
-    sm_tictoc("evaluate3D");
+    frsm_tictoc("evaluate3D");
   }
   else {
-    sm_tictoc("evaluate3D_multiRes");
+    frsm_tictoc("evaluate3D_multiRes");
     r = rlt_low_res->evaluate3D_multiRes(rlt, points, numPoints, prior, xRange, yRange, thetaRange, thetaResolution,
         hitThresh, xSat, ySat, thetaSat);
-    sm_tictoc("evaluate3D_multiRes");
+    frsm_tictoc("evaluate3D_multiRes");
   }
-  r.theta = sm_normalize_theta(r.theta);
+  r.theta = frsm_normalize_theta(r.theta);
 
   //    fprintf(stderr,"r.x=%f \t r.y=%f \t r.t=%f\t r.score=%f\n", r.x, r.y, r.theta, r.score);
   //  fprintf(stderr,"r1.x=%f \t r1.y=%f \t r1.t=%f\t r1.score=%f\n",r1.x,r1.y,r1.theta,r1.score);
@@ -508,7 +507,7 @@ ScanTransform ScanMatcher::gridMatch(smPoint * points, unsigned numPoints, ScanT
 }
 
 //TODO: gauss newton or ESM optimizaiton?
-ScanTransform ScanMatcher::coordAscentMatch(smPoint * points, unsigned numPoints, ScanTransform * startTrans)
+ScanTransform ScanMatcher::coordAscentMatch(frsmPoint * points, unsigned numPoints, ScanTransform * startTrans)
 {
   typedef enum {
     Front = 0, Back = 1, Right = 2, Left = 3, TurnLeft = 4, TurnRight = 5, Done = 6
@@ -614,8 +613,8 @@ ScanTransform ScanMatcher::coordAscentMatch(smPoint * points, unsigned numPoints
   return currentTrans;
 }
 
-void ScanMatcher::addScanToBeProcessed(smPoint * points, unsigned numPoints, ScanTransform * T,
-    sm_laser_type_t laser_type, int64_t utime)
+void ScanMatcher::addScanToBeProcessed(frsmPoint * points, unsigned numPoints, ScanTransform * T,
+    frsm_laser_type_t laser_type, int64_t utime)
 {
   if (!useThreads) {
     addScan(points, numPoints, T, laser_type, utime);
@@ -633,7 +632,7 @@ void ScanMatcher::addScanToBeProcessed(smPoint * points, unsigned numPoints, Sca
   }
 }
 
-void ScanMatcher::addScan(smPoint * points, unsigned numPoints, ScanTransform * T, sm_laser_type_t laser_type,
+void ScanMatcher::addScan(frsmPoint * points, unsigned numPoints, ScanTransform * T, frsm_laser_type_t laser_type,
     int64_t utime, bool rebuildNow)
 {
   Scan * s = new Scan(numPoints, points, *T, laser_type, utime, true);
@@ -658,7 +657,7 @@ void ScanMatcher::addScan(Scan *s, bool rebuildNow)
     for (it = scans.begin(); it != scans.end(); ++it) {
       Scan * scan = *it;
       if (scan->contours.size() == 0) {
-        sm_tictoc("findContours");
+        frsm_tictoc("findContours");
         if (contour_extractor == NULL && contour_extractor->laserType != s->laser_type) {
           delete contour_extractor;
           contour_extractor = NULL;
@@ -667,7 +666,7 @@ void ScanMatcher::addScan(Scan *s, bool rebuildNow)
           )
           contour_extractor = new ContourExtractor(s->laser_type);
         contour_extractor->findContours(scan->ppoints, scan->numPoints, scan->contours);
-        sm_tictoc("findContours"); //      s->drawContours();
+        frsm_tictoc("findContours"); //      s->drawContours();
       }
     }
 
@@ -675,29 +674,29 @@ void ScanMatcher::addScan(Scan *s, bool rebuildNow)
       pthread_mutex_lock(&rlt_mutex);
 
     //rebuild now
-    //    sm_tictoc("rebuildRaster_olson");
+    //    frsm_tictoc("rebuildRaster_olson");
     //    rebuildRaster_olson(&rlt);
-    //    sm_tictoc("rebuildRaster_olson");
+    //    frsm_tictoc("rebuildRaster_olson");
 
-    //  sm_tictoc("rebuildRaster_blur");
+    //  frsm_tictoc("rebuildRaster_blur");
     //  rebuildRaster_blur(&rlt);
-    //  sm_tictoc("rebuildRaster_blur");
+    //  frsm_tictoc("rebuildRaster_blur");
 
-    //        sm_tictoc("rebuildRaster_blurLine");
+    //        frsm_tictoc("rebuildRaster_blurLine");
     //        rebuildRaster_blurLine(&rlt);
-    //        sm_tictoc("rebuildRaster_blurLine");
+    //        frsm_tictoc("rebuildRaster_blurLine");
 
-    sm_tictoc("rebuildRaster");
+    frsm_tictoc("rebuildRaster");
     rebuildRaster(&rlt);
-    sm_tictoc("rebuildRaster");
+    frsm_tictoc("rebuildRaster");
 
     if (useMultiRes > 0) {
-      sm_tictoc("rebuild_lowRes");
+      frsm_tictoc("rebuild_lowRes");
       if (rlt_low_res != NULL
         )
         delete rlt_low_res;
       rlt_low_res = new RasterLookupTable(rlt, downsampleFactor);
-      sm_tictoc("rebuild_lowRes");
+      frsm_tictoc("rebuild_lowRes");
     }
 
     if (useThreads) {
@@ -710,12 +709,12 @@ void ScanMatcher::addScan(Scan *s, bool rebuildNow)
 
 }
 
-ScanTransform ScanMatcher::matchSuccessive(smPoint * points, unsigned numPoints, sm_laser_type_t laser_type,
+ScanTransform ScanMatcher::matchSuccessive(frsmPoint * points, unsigned numPoints, frsm_laser_type_t laser_type,
     int64_t utime, bool preventAddScan, ScanTransform * prior)
 {
   int xSat = 0, ySat = 0, thetaSat = 0;
   if (numScans() > 0) {
-    sm_tictoc("scanMatch");
+    frsm_tictoc("scanMatch");
 
     double xRange1 = initialSearchRangeXY;
     double yRange1 = initialSearchRangeXY;
@@ -736,25 +735,25 @@ ScanTransform ScanMatcher::matchSuccessive(smPoint * points, unsigned numPoints,
         //guess that velocity is constant, but capped at the maxSearchRange...
         double dx = (currentPose.x - prevPose.x);
         if (fabs(dx) > maxSearchRangeXY)
-          dx = sm_fsign(dx) * maxSearchRangeXY;
+          dx = frsm_fsign(dx) * maxSearchRangeXY;
         poseGuess.x = currentPose.x + dx;
 
         double dy = (currentPose.y - prevPose.y);
         if (fabs(dy) > maxSearchRangeXY)
-          dy = sm_fsign(dy) * maxSearchRangeXY;
+          dy = frsm_fsign(dy) * maxSearchRangeXY;
         poseGuess.y = currentPose.y + dy;
 
-        double dt = sm_normalize_theta(currentPose.theta - prevPose.theta);
+        double dt = frsm_normalize_theta(currentPose.theta - prevPose.theta);
         if (fabs(dt) > maxSearchRangeTheta)
-          dt = sm_fsign(dt) * maxSearchRangeTheta;
-        poseGuess.theta = sm_normalize_theta(currentPose.theta + dt);
+          dt = frsm_fsign(dt) * maxSearchRangeTheta;
+        poseGuess.theta = frsm_normalize_theta(currentPose.theta + dt);
       }
       poseGuess.score = motionModelPriorWeight;
     }
     //make sure that the search range is large enough for the current velocity!
     xRange1 = fmax(xRange1, fabs(1.5 * (currentPose.x - prevPose.x)));
     yRange1 = fmax(yRange1, fabs(1.5 * (currentPose.y - prevPose.y)));
-    thetaRange1 = fmax(thetaRange1, fabs(1.5 * sm_normalize_theta(currentPose.theta - prevPose.theta)));
+    thetaRange1 = fmax(thetaRange1, fabs(1.5 * frsm_normalize_theta(currentPose.theta - prevPose.theta)));
 
     prevPose = currentPose;
 
@@ -810,20 +809,20 @@ ScanTransform ScanMatcher::matchSuccessive(smPoint * points, unsigned numPoints,
       }
 
       if (matchingMode == SM_GRID_COORD) {
-        sm_tictoc("GradientAscent Polish");
+        frsm_tictoc("GradientAscent Polish");
         ScanTransform polished = coordAscentMatch(points, numPoints, &currentPose);
         currentPose = polished;
         //        }
-        sm_tictoc("GradientAscent Polish");
+        frsm_tictoc("GradientAscent Polish");
       }
     }
     else {
-      sm_tictoc("GradientAscent Match");
+      frsm_tictoc("GradientAscent Match");
       ScanTransform polished = coordAscentMatch(points, numPoints, &poseGuess);
       memset(polished.sigma, 0, 9 * sizeof(double));
       polished.sigma[0] = polished.sigma[4] = polished.sigma[8] = .0001;
       currentPose = polished;
-      sm_tictoc("GradientAscent Match");
+      frsm_tictoc("GradientAscent Match");
 
     }
     //make sure that the variances are nonzero
@@ -860,7 +859,7 @@ ScanTransform ScanMatcher::matchSuccessive(smPoint * points, unsigned numPoints,
       currentPose.sigma[4] *= 3;
     }
 
-    sm_tictoc("scanMatch");
+    frsm_tictoc("scanMatch");
 
   }
   if (matchingMode == SM_Y_COORD_ONLY || matchingMode == SM_Y_GRID_COORD) {
@@ -894,9 +893,9 @@ ScanTransform ScanMatcher::matchSuccessive(smPoint * points, unsigned numPoints,
     }
 
     if (addScan) {
-      sm_tictoc("addScan");
+      frsm_tictoc("addScan");
       addScanToBeProcessed(points, numPoints, &currentPose, laser_type, utime);
-      sm_tictoc("addScan");
+      frsm_tictoc("addScan");
     }
   }
   else {
@@ -916,7 +915,7 @@ ScanTransform ScanMatcher::matchSuccessive(smPoint * points, unsigned numPoints,
     currentPose.sigma[8] = .1;
   }
 
-  sm_tictoc("laser_handler");
+  frsm_tictoc("laser_handler");
 
   return currentPose;
 
@@ -931,4 +930,4 @@ int ScanMatcher::isUsingIPP()
 #endif
 }
 
-} //namespace scanmatch
+} //namespace frsm

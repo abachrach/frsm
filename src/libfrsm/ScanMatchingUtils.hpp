@@ -1,16 +1,16 @@
 /**
- * SECTION:scanmatch
+ * SECTION:frsm
  * @title: ScanMatchingUtils
  * @short_description: Various utility functions used in the scan matching routines
- * @include: bot/scanmatch/ScanMatchingUtils.hpp
+ * @include: bot/frsm/ScanMatchingUtils.hpp
  *
  * Various utility functions used in the scan matching routines
  *
  * many of these were stolen from elsewhere in carmen3D/agile, and placed here to make the scan matcher
  * somewhat standalone.
  *
- * Linking: -lscanmatch
- * namespace: scanmatch
+ * Linking: -lfrsm
+ * namespace: frsm
  */
 
 #ifndef SCANMATCHINGUTILS_
@@ -23,7 +23,7 @@
 #include <stdlib.h>
 #include <malloc.h>
 
-namespace scanmatch {
+namespace frsm {
 
 #ifndef PI
 #define PI 3.14159265358979323846
@@ -36,19 +36,19 @@ namespace scanmatch {
 typedef struct {
   double x;
   double y;
-} smPoint;
+} frsmPoint;
 
-#define smPoint_as_array(p) ((double*)p)
+#define frsmPoint_as_array(p) ((double*)p)
 
 /* The magic below allows you to use the SMPOINT() macro to convert a
  * double[2] to a smPoint.  gcc is smart -- if you try to cast anything
  * other than a smPoint or a double[] with this macro, gcc will emit
  * a warning. */
-union _smPoint_any_t {
-  smPoint point;
+union _frsmPoint_any_t {
+  frsmPoint point;
   double array[2];
 };
-#define SMPOINT(p) (&(((union _smPoint_any_t *)(p))->point))
+#define FRSMPOINT(p) (&(((union _frsmPoint_any_t *)(p))->point))
 
 /**
  * structure which stores a candidate scan transformation, along with some metadata.
@@ -69,23 +69,23 @@ typedef struct {
  */
 typedef enum {
   SM_HOKUYO_UTM, SM_HOKUYO_URG, SM_SICK_LMS, SM_DUMMY_LASER
-} sm_laser_type_t;
+} frsm_laser_type_t;
 
-static inline void sm_vector_scale_3d(double v[3], double s)
+static inline void frsm_vector_scale_3d(double v[3], double s)
 {
   v[0] *= s;
   v[1] *= s;
   v[2] *= s;
 }
 
-static inline void sm_vector_scale_nd(double * v, int N, double s)
+static inline void frsm_vector_scale_nd(double * v, int N, double s)
 {
   int i;
   for (i = 0; i < N; i++)
     v[i] *= s;
 }
 
-static inline void sm_vector_vector_outer_product_3d(const double v1[3], const double v2[3], double result[9])
+static inline void frsm_vector_vector_outer_product_3d(const double v1[3], const double v2[3], double result[9])
 {
   result[0] = v1[0] * v2[0];
   result[1] = v1[1] * v2[0];
@@ -98,47 +98,47 @@ static inline void sm_vector_vector_outer_product_3d(const double v1[3], const d
   result[8] = v1[2] * v2[2];
 }
 
-static inline void sm_vector_add_3d(const double v1[3], const double v2[3], double result[3])
+static inline void frsm_vector_add_3d(const double v1[3], const double v2[3], double result[3])
 {
   result[0] = v1[0] + v2[0];
   result[1] = v1[1] + v2[1];
   result[2] = v1[2] + v2[2];
 }
 
-static inline void sm_vector_add_2d(const double v1[2], const double v2[2], double result[2])
+static inline void frsm_vector_add_2d(const double v1[2], const double v2[2], double result[2])
 {
   result[0] = v1[0] + v2[0];
   result[1] = v1[1] + v2[1];
 }
 
-static inline void sm_vector_add_nd(const double * v1, const double * v2, int N, double * result)
+static inline void frsm_vector_add_nd(const double * v1, const double * v2, int N, double * result)
 {
   int i;
   for (i = 0; i < N; i++)
     result[i] = v1[i] + v2[i];
 }
 
-static inline void sm_vector_sub_3d(const double v1[3], const double v2[3], double result[3])
+static inline void frsm_vector_sub_3d(const double v1[3], const double v2[3], double result[3])
 {
   result[0] = v1[0] - v2[0];
   result[1] = v1[1] - v2[1];
   result[2] = v1[2] - v2[2];
 }
 
-static inline void sm_vector_sub_2d(const double v1[2], const double v2[2], double result[2])
+static inline void frsm_vector_sub_2d(const double v1[2], const double v2[2], double result[2])
 {
   result[0] = v1[0] - v2[0];
   result[1] = v1[1] - v2[1];
 }
 
-static inline void sm_vector_sub_nd(const double * v1, const double * v2, int N, double * result)
+static inline void frsm_vector_sub_nd(const double * v1, const double * v2, int N, double * result)
 {
   int i;
   for (i = 0; i < N; i++)
     result[i] = v1[i] - v2[i];
 }
 
-static inline void sm_matrix_multiply_3x3_3x3(const double a[9], const double b[9], double r[9])
+static inline void frsm_matrix_multiply_3x3_3x3(const double a[9], const double b[9], double r[9])
 {
   for (int i = 0; i < 3; i++) {
     for (int j = 0; j < 3; j++) {
@@ -150,7 +150,7 @@ static inline void sm_matrix_multiply_3x3_3x3(const double a[9], const double b[
   }
 }
 
-inline int sm_clamp(int v, int min, int max)
+inline int frsm_clamp(int v, int min, int max)
 {
   if (v > max)
     return max;
@@ -159,22 +159,22 @@ inline int sm_clamp(int v, int min, int max)
   return v;
 }
 
-inline double sm_sq(double v)
+inline double frsm_sq(double v)
 {
   return v * v;
 }
 
-inline double sm_dist(smPoint * p1, smPoint * p2)
+inline double frsm_dist(frsmPoint * p1, frsmPoint * p2)
 {
-  return sqrt(sm_sq(p1->x - p2->x) + sm_sq(p1->y - p2->y));
+  return sqrt(frsm_sq(p1->x - p2->x) + frsm_sq(p1->y - p2->y));
 }
 
-inline double sm_norm(smPoint * p)
+inline double frsm_norm(frsmPoint * p)
 {
-  return sqrt(sm_sq(p->x) + sm_sq(p->y));
+  return sqrt(frsm_sq(p->x) + frsm_sq(p->y));
 }
 
-inline double sm_normalize_theta(double theta)
+inline double frsm_normalize_theta(double theta)
 {
   int multiplier;
 
@@ -191,49 +191,33 @@ inline double sm_normalize_theta(double theta)
   return theta;
 }
 
-inline double sm_angle_subtract(double theta1, double theta2)
+inline double frsm_angle_subtract(double theta1, double theta2)
 {
-  return sm_normalize_theta(sm_normalize_theta(theta1) - sm_normalize_theta(theta2));
+  return frsm_normalize_theta(frsm_normalize_theta(theta1) - frsm_normalize_theta(theta2));
 
 }
 
-inline void sm_normalize_vector(smPoint * v)
+inline void frsm_normalize_vector(frsmPoint * v)
 {
-  double n = sm_norm(v);
+  double n = frsm_norm(v);
   v->x /= n;
   v->y /= n;
 }
 
-inline double sm_dot(smPoint * p1, smPoint * p2)
+inline double frsm_dot(frsmPoint * p1, frsmPoint * p2)
 {
   return p1->x * p2->x + p1->y * p2->y;
 }
 
-inline double sm_angle_between_points(smPoint * p1, smPoint * p2, smPoint * p3)
+inline double frsm_angle_between_points(frsmPoint * p1, frsmPoint * p2, frsmPoint * p3)
 {
-  smPoint v1 = { p2->x - p1->x, p2->y - p1->y };
-  smPoint v2 = { p3->x - p2->x, p3->y - p2->y };
-  double dot = sm_dot(&v1, &v2);
-  return sm_normalize_theta(acos(dot / (sm_norm(&v1) * sm_norm(&v2))));
+  frsmPoint v1 = { p2->x - p1->x, p2->y - p1->y };
+  frsmPoint v2 = { p3->x - p2->x, p3->y - p2->y };
+  double dot = frsm_dot(&v1, &v2);
+  return frsm_normalize_theta(acos(dot / (frsm_norm(&v1) * frsm_norm(&v2))));
 }
 
-inline int sm_imax(int v1, int v2)
-{
-  if (v1 > v2)
-    return v1;
-  else
-    return v2;
-}
-
-inline int sm_imin(int v1, int v2)
-{
-  if (v1 < v2)
-    return v1;
-  else
-    return v2;
-}
-
-inline unsigned char sm_ucmax(unsigned char v1, unsigned char v2)
+inline int frsm_imax(int v1, int v2)
 {
   if (v1 > v2)
     return v1;
@@ -241,7 +225,7 @@ inline unsigned char sm_ucmax(unsigned char v1, unsigned char v2)
     return v2;
 }
 
-inline char sm_ucmin(unsigned char v1, unsigned char v2)
+inline int frsm_imin(int v1, int v2)
 {
   if (v1 < v2)
     return v1;
@@ -249,7 +233,23 @@ inline char sm_ucmin(unsigned char v1, unsigned char v2)
     return v2;
 }
 
-inline double sm_fsign(double num)
+inline unsigned char frsm_ucmax(unsigned char v1, unsigned char v2)
+{
+  if (v1 > v2)
+    return v1;
+  else
+    return v2;
+}
+
+inline char frsm_ucmin(unsigned char v1, unsigned char v2)
+{
+  if (v1 < v2)
+    return v1;
+  else
+    return v2;
+}
+
+inline double frsm_fsign(double num)
 {
   if (num > 0)
     return 1;
@@ -259,7 +259,7 @@ inline double sm_fsign(double num)
     return -1;
 }
 
-inline void sm_rotate2D(const double p[2], double theta, double rp[2])
+inline void frsm_rotate2D(const double p[2], double theta, double rp[2])
 {
   double c = cos(theta);
   double s = sin(theta);
@@ -267,7 +267,7 @@ inline void sm_rotate2D(const double p[2], double theta, double rp[2])
   rp[1] = s * p[0] + c * p[1];
 }
 
-inline void sm_rotateCov2D(const double cov[9], double theta, double rCov[9])
+inline void frsm_rotateCov2D(const double cov[9], double theta, double rCov[9])
 {
   // compute R^-1*cov*R
   double c = cos(theta);
@@ -275,11 +275,11 @@ inline void sm_rotateCov2D(const double cov[9], double theta, double rCov[9])
   double R[9] = { c, -s, 0, s, c, 0, 0, 0, 1 };
   double Rinv[9] = { c, s, 0, -s, c, 0, 0, 0, 1 };
   double tmp[9]; //multiply doesn't work in place...
-  sm_matrix_multiply_3x3_3x3(cov, R, tmp);
-  sm_matrix_multiply_3x3_3x3(Rinv, tmp, rCov);
+  frsm_matrix_multiply_3x3_3x3(cov, R, tmp);
+  frsm_matrix_multiply_3x3_3x3(Rinv, tmp, rCov);
 }
 
-inline double sm_dist_to_line(smPoint * pt, smPoint * v1, smPoint * v2)
+inline double frsm_dist_to_line(frsmPoint * pt, frsmPoint * v1, frsmPoint * v2)
 { //compute distance to line that passes through these two points
   //expanded ugliness from symbolic matlab:
   //    a = v1 - v2;
@@ -289,7 +289,7 @@ inline double sm_dist_to_line(smPoint * pt, smPoint * v1, smPoint * v2)
       v1->x * v1->x - 2 * v1->x * v2->x + v2->x * v2->x + v1->y * v1->y - 2 * v1->y * v2->y + v2->y * v2->y);
 }
 
-inline double sm_dist_to_segment(smPoint * pt, smPoint * v1, smPoint * v2, int * vertexNum = NULL)
+inline double frsm_dist_to_segment(frsmPoint * pt, frsmPoint * v1, frsmPoint * v2, int * vertexNum = NULL)
 { //compute the distance to the line segment, or the closest endpoint if the point isn't inside
   double dot1 = (v2->x - v1->x) * (pt->x - v1->x) + (v2->y - v1->y) * (pt->y - v1->y);
   double dot2 = (v1->x - v2->x) * (pt->x - v2->x) + (v1->y - v2->y) * (pt->y - v2->y);
@@ -298,11 +298,11 @@ inline double sm_dist_to_segment(smPoint * pt, smPoint * v1, smPoint * v2, int *
   {
     if (vertexNum)
       *vertexNum = 0;
-    return sm_dist_to_line(pt, v1, v2);
+    return frsm_dist_to_line(pt, v1, v2);
   }
   else {
-    double dv1 = sm_dist(pt, v1);
-    double dv2 = sm_dist(pt, v2);
+    double dv1 = frsm_dist(pt, v1);
+    double dv2 = frsm_dist(pt, v2);
     if (dv1 < dv2) {
       if (vertexNum)
         *vertexNum = 1;
@@ -317,7 +317,7 @@ inline double sm_dist_to_segment(smPoint * pt, smPoint * v1, smPoint * v2, int *
 
 }
 
-inline void sm_transformPoints(ScanTransform *T, smPoint * points, unsigned numPoints, smPoint * ppoints)
+inline void frsm_transformPoints(ScanTransform *T, frsmPoint * points, unsigned numPoints, frsmPoint * ppoints)
 {
   double ct = cos(T->theta), st = sin(T->theta);
   for (unsigned i = 0; i < numPoints; i++) {
@@ -326,8 +326,8 @@ inline void sm_transformPoints(ScanTransform *T, smPoint * points, unsigned numP
   }
 }
 
-inline int sm_projectRangesToPoints(float * ranges, int numPoints, double thetaStart, double thetaStep,
-    smPoint * points, double maxRange = 1e10, double validRangeStart = -1000, double validRangeEnd = 1000,
+inline int frsm_projectRangesToPoints(float * ranges, int numPoints, double thetaStart, double thetaStep,
+    frsmPoint * points, double maxRange = 1e10, double validRangeStart = -1000, double validRangeEnd = 1000,
     double * aveValidRange = NULL, double * stddevValidRange = NULL)
 {
   int count = 0;
@@ -342,7 +342,7 @@ inline int sm_projectRangesToPoints(float * ranges, int numPoints, double thetaS
       points[count].y = ranges[i] * sin(theta);
       count++;
       aveRange += ranges[i];
-      aveRangeSq += sm_sq(ranges[i]);
+      aveRangeSq += frsm_sq(ranges[i]);
     }
 
     theta += thetaStep;
@@ -354,27 +354,27 @@ inline int sm_projectRangesToPoints(float * ranges, int numPoints, double thetaS
   if (aveValidRange != NULL)
     *aveValidRange = aveRange;
   if (stddevValidRange != NULL)
-    *stddevValidRange = sqrt(aveRangeSq - sm_sq(aveRange));
+    *stddevValidRange = sqrt(aveRangeSq - frsm_sq(aveRange));
 
   return count;
 }
 
-inline int sm_projectRangesAndDecimate(int beamskip, float spatialDecimationThresh, float * ranges, int numPoints,
-    double thetaStart, double thetaStep, smPoint * points, double maxRange = 1e10, double validRangeStart = -1000,
+inline int frsm_projectRangesAndDecimate(int beamskip, float spatialDecimationThresh, float * ranges, int numPoints,
+    double thetaStart, double thetaStep, frsmPoint * points, double maxRange = 1e10, double validRangeStart = -1000,
     double validRangeEnd = 1000)
 {
   int lastAdd = -1000;
   double aveRange;
   double stdDevRange;
-  int numValidPoints = sm_projectRangesToPoints(ranges, numPoints, thetaStart, thetaStep, points, maxRange,
+  int numValidPoints = frsm_projectRangesToPoints(ranges, numPoints, thetaStart, thetaStep, points, maxRange,
       validRangeStart, validRangeEnd, &aveRange, &stdDevRange);
 
-  smPoint origin = { 0, 0 };
-  smPoint lastAddPoint = { 0, 0 };
+  frsmPoint origin = { 0, 0 };
+  frsmPoint lastAddPoint = { 0, 0 };
   int numDecPoints = 0;
   for (int i = 0; i < numValidPoints; i++) {
     //add every beamSkip beam, unless points are more than spatialDecimationThresh, or more than 1.8 stdDevs more than ave range
-    if ((i - lastAdd) > beamskip || sm_dist(&points[i], &lastAddPoint) > spatialDecimationThresh || sm_dist(&points[i],
+    if ((i - lastAdd) > beamskip || frsm_dist(&points[i], &lastAddPoint) > spatialDecimationThresh || frsm_dist(&points[i],
         &origin) > (aveRange + 1.8 * stdDevRange)) {
       lastAdd = i;
       lastAddPoint = points[i];
@@ -385,29 +385,29 @@ inline int sm_projectRangesAndDecimate(int beamskip, float spatialDecimationThre
   return numDecPoints;
 }
 
-inline double sm_get_time(void)
+inline double frsm_get_time(void)
 {
   struct timeval tv;
   double t;
 
   if (gettimeofday(&tv, NULL) < 0)
-    fprintf(stderr, "sm_get_time encountered error in gettimeofday\n");
+    fprintf(stderr, "frsm_get_time encountered error in gettimeofday\n");
   t = tv.tv_sec + tv.tv_usec / 1000000.0;
   return t;
 }
 
-inline int64_t sm_get_utime(void)
+inline int64_t frsm_get_utime(void)
 {
   struct timeval tv;
   int64_t ut;
 
   if (gettimeofday(&tv, NULL) < 0)
-    fprintf(stderr, "sm_get_time encountered error in gettimeofday\n");
+    fprintf(stderr, "frsm_get_time encountered error in gettimeofday\n");
   ut = tv.tv_sec * 1000000.0 + tv.tv_usec;
   return ut;
 }
 
-static inline sm_laser_type_t sm_get_laser_type_from_name(char * laser_name)
+static inline frsm_laser_type_t frsm_get_laser_type_from_name(char * laser_name)
 {
   if (strcmp(laser_name, "HOKUYO_UTM") == 0) {
     return SM_HOKUYO_UTM;
@@ -423,7 +423,7 @@ static inline sm_laser_type_t sm_get_laser_type_from_name(char * laser_name)
 }
 
 /** Given an array of colors, a palette is created that linearly interpolates through all the colors. **/
-static void sm_color_util_build_color_table(double color_palette[][3], int palette_size, float lut[][3], int lut_size)
+static void frsm_color_util_build_color_table(double color_palette[][3], int palette_size, float lut[][3], int lut_size)
 {
   for (int idx = 0; idx < lut_size; idx++) {
     double znorm = ((double) idx) / lut_size;
@@ -438,34 +438,34 @@ static void sm_color_util_build_color_table(double color_palette[][3], int palet
 }
 
 #define SM_JET_COLORS_LUT_SIZE 1024
-static float sm_jet_colors[SM_JET_COLORS_LUT_SIZE][3];
-static int sm_jet_colors_initialized = 0;
+static float frsm_jet_colors[SM_JET_COLORS_LUT_SIZE][3];
+static int frsm_jet_colors_initialized = 0;
 
-static void sm_init_color_table_jet()
+static void frsm_init_color_table_jet()
 {
   double jet[][3] = { { 0, 0, 1 }, { 0, .5, .5 }, { .8, .8, 0 }, { 1, 0, 0 } };
 
-  sm_color_util_build_color_table(jet, sizeof(jet) / (sizeof(double) * 3), sm_jet_colors, SM_JET_COLORS_LUT_SIZE);
-  sm_jet_colors_initialized = 1;
+  frsm_color_util_build_color_table(jet, sizeof(jet) / (sizeof(double) * 3), frsm_jet_colors, SM_JET_COLORS_LUT_SIZE);
+  frsm_jet_colors_initialized = 1;
 }
 
 static inline float *
-sm_color_util_jet(double v)
+frsm_color_util_jet(double v)
 {
-  if (!sm_jet_colors_initialized)
-    sm_init_color_table_jet();
+  if (!frsm_jet_colors_initialized)
+    frsm_init_color_table_jet();
 
   v = fmax(0, v);
   v = fmin(1, v);
 
   int idx = (SM_JET_COLORS_LUT_SIZE - 1) * v;
-  return sm_jet_colors[idx];
+  return frsm_jet_colors[idx];
 }
 
 // Returns the hash value of the null terminated C string 'string' using the
 // SDBM hash algorithm. The number of significant characters for which the
 // hash value will be calculated is limited to MAXIMUM_LENGTH_FOR_STRINGS.
-inline unsigned int sm_hash(const char *string)
+inline unsigned int frsm_hash(const char *string)
 {
   register unsigned int len, index, hash = 0;
   register char ch;
@@ -487,7 +487,7 @@ inline unsigned int sm_hash(const char *string)
 //#define PRINT_TO_FILE
 static pthread_mutex_t tictoc_lock;
 static int tictoc_initialized = 0;
-inline void sm_tictoc_init() //this MUST be called if you want tictoc to be thread safe
+inline void frsm_tictoc_init() //this MUST be called if you want tictoc to be thread safe
 {
 #ifdef DISABLE_TICTOC
   return;
@@ -497,7 +497,7 @@ inline void sm_tictoc_init() //this MUST be called if you want tictoc to be thre
 
 }
 
-inline double sm_tictoc(const char *description)
+inline double frsm_tictoc(const char *description)
 {
 
 #ifdef DISABLE_TICTOC
@@ -519,14 +519,14 @@ inline double sm_tictoc(const char *description)
   static char * descriptions[1000];
   if (description != NULL) {
 
-    unsigned idx = sm_hash(description) % 1000;
+    unsigned idx = frsm_hash(description) % 1000;
     if (flag[idx] == 0) {
       //printf("tic \n");
-      t[idx] = sm_get_time();
+      t[idx] = frsm_get_time();
       flag[idx] = 1;
     }
     else if (flag[idx] == 1) {
-      timeTaken = sm_get_time() - t[idx];
+      timeTaken = frsm_get_time() - t[idx];
       totalT[idx] = totalT[idx] + timeTaken;
       if (numCalls[idx] == 0) {
         //first time... store description
@@ -675,7 +675,7 @@ inline double sm_tictoc(const char *description)
 
 #define ELEM_SWAP(a,b) { register float t=(a);(a)=(b);(b)=t; }
 
-inline float sm_median(float arr[], int n)
+inline float frsm_median(float arr[], int n)
 {
   int low, high;
   int median;

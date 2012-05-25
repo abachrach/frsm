@@ -23,7 +23,7 @@
 #define VAR_COMP_THRESH .80
 
 using namespace std;
-namespace scanmatch {
+namespace frsm {
 
 typedef struct {
   double x[3];
@@ -85,17 +85,17 @@ RasterLookupTable::RasterLookupTable(RasterLookupTable * hi_res, int downsampleF
   memset(distdata, 0, distdata_size);
 
   //TODO: Is this too slow?
-  sm_tictoc("downsample_exp");
+  frsm_tictoc("downsample_exp");
   //downsample the high res table
   //each pixel is set to the max of all its high-res counterparts
   for (int i = 0; i < hi_res->height; i++) {
     for (int j = 0; j < hi_res->width; j++) {
       int lind = i / downsampleFactor * width + j / downsampleFactor;
       int hind = i * hi_res->width + j;
-      distdata[lind] = sm_ucmax(distdata[lind], hi_res->distdata[hind]);
+      distdata[lind] = frsm_ucmax(distdata[lind], hi_res->distdata[hind]);
     }
   }
-  sm_tictoc("downsample_exp");
+  frsm_tictoc("downsample_exp");
 
 }
 
@@ -110,11 +110,11 @@ void RasterLookupTable::drawRectangle(double cx, double cy, double x_size, doubl
   double x_bound = (x_size / 2.0 * fabs(ux) + y_size / 2.0 * fabs(uy)) + lutRange;
   double y_bound = (x_size / 2.0 * fabs(uy) + y_size / 2.0 * fabs(ux)) + lutRange;
 
-  int ix0 = sm_clamp((int) ((cx - x_bound - x0) * pixelsPerMeter), 0, width - 1);
-  int ix1 = sm_clamp((int) ((cx + x_bound - x0) * pixelsPerMeter), 0, width - 1);
+  int ix0 = frsm_clamp((int) ((cx - x_bound - x0) * pixelsPerMeter), 0, width - 1);
+  int ix1 = frsm_clamp((int) ((cx + x_bound - x0) * pixelsPerMeter), 0, width - 1);
 
-  int iy0 = sm_clamp((int) ((cy - y_bound - y0) * pixelsPerMeter), 0, height - 1);
-  int iy1 = sm_clamp((int) ((cy + y_bound - y0) * pixelsPerMeter), 0, height - 1);
+  int iy0 = frsm_clamp((int) ((cy - y_bound - y0) * pixelsPerMeter), 0, height - 1);
+  int iy1 = frsm_clamp((int) ((cy + y_bound - y0) * pixelsPerMeter), 0, height - 1);
 
   double y = y0 + (iy0 + .5) * metersPerPixel;
 
@@ -140,14 +140,14 @@ void RasterLookupTable::drawRectangle(double cx, double cy, double x_size, doubl
       c1 = fmax(0, c1);
       c2 = fmax(0, c2);
 
-      double distSq = sm_sq(c1) + sm_sq(c2);
+      double distSq = frsm_sq(c1) + frsm_sq(c2);
 
       int lutSqIdx = (int) (lutSq_size * distSq * invLutSqRange + .5);
       //      printf("dist = %f, lutSqIdx=%d, lutSq_first_zero=%d\n",distSq,lutSqIdx,lutSq_first_zero);
 
       if (lutSqIdx < lutSq_first_zero) {
         int idx = iy * width + ix;
-        distdata[idx] = sm_ucmax(distdata[idx], lutSq[lutSqIdx]);
+        distdata[idx] = frsm_ucmax(distdata[idx], lutSq[lutSqIdx]);
       }
 
       x += metersPerPixel;
@@ -175,16 +175,16 @@ void RasterLookupTable::drawKernel(int ix, int iy, const uint8_t*kernel, int ker
 
 }
 
-void RasterLookupTable::drawBlurredPoint(const smPoint * p, const LutKernel * kern)
+void RasterLookupTable::drawBlurredPoint(const frsmPoint * p, const LutKernel * kern)
 {
   int ix, iy;
   worldToTable(p->x, p->y, &ix, &iy);
   drawKernel(ix, iy, kern->square_kernel, kern->kernel_size, kern->kernel_size);
 
 }
-void RasterLookupTable::drawBlurredLine(const smPoint * p1, const smPoint * p2, const LutKernel * kern)
+void RasterLookupTable::drawBlurredLine(const frsmPoint * p1, const frsmPoint * p2, const LutKernel * kern)
 {
-  smPoint d = { p2->x - p1->x, p2->y - p1->y };
+  frsmPoint d = { p2->x - p1->x, p2->y - p1->y };
   if (d.x == 0 && d.y == 0) {
     return;
   }
@@ -200,7 +200,7 @@ void RasterLookupTable::drawBlurredLine(const smPoint * p1, const smPoint * p2, 
     kernel_pointer = kern->line_kernels + (slope_ind * kern->line_kernel_stride);
   }
   else {
-    int slope_ind = kern->slope_step * fabs(sm_angle_subtract(M_PI / 2.0, slope));
+    int slope_ind = kern->slope_step * fabs(frsm_angle_subtract(M_PI / 2.0, slope));
     kernel_width = kern->line_kernel_sizes[slope_ind];
     kernel_height = 1;
     kernel_pointer = kern->line_kernels + (slope_ind * kern->line_kernel_stride);
@@ -294,7 +294,7 @@ static int computeKernelSize(double sigma, double slope, float cutoff)
 }
 
 
-int RasterLookupTable::getNumHits(const smPoint * points, const unsigned numPoints, const ScanTransform * XYT0,
+int RasterLookupTable::getNumHits(const frsmPoint * points, const unsigned numPoints, const ScanTransform * XYT0,
     int hitThresh)
 {
   int hits = 0;
@@ -303,7 +303,7 @@ int RasterLookupTable::getNumHits(const smPoint * points, const unsigned numPoin
   for (unsigned pidx = 0; pidx < numPoints; pidx++) {
 
     // project the point
-    smPoint p = points[pidx];
+    frsmPoint p = points[pidx];
     double x = p.x * ct - p.y * st + XYT0->x;
     double y = p.x * st + p.y * ct + XYT0->y;
     int ix, iy;
@@ -314,14 +314,14 @@ int RasterLookupTable::getNumHits(const smPoint * points, const unsigned numPoin
   return hits;
 }
 
-float RasterLookupTable::getScore(const smPoint * points, const unsigned numPoints, const ScanTransform * XYT0)
+float RasterLookupTable::getScore(const frsmPoint * points, const unsigned numPoints, const ScanTransform * XYT0)
 {
   float score = 0.0;
   double ct = cos(XYT0->theta), st = sin(XYT0->theta);
   // Evaluate each point for a fixed transform
   for (unsigned pidx = 0; pidx < numPoints; pidx++) {
     // project the point
-    smPoint p = points[pidx];
+    frsmPoint p = points[pidx];
     double x = p.x * ct - p.y * st + XYT0->x;
     double y = p.x * st + p.y * ct + XYT0->y;
     int ix, iy;
@@ -332,7 +332,7 @@ float RasterLookupTable::getScore(const smPoint * points, const unsigned numPoin
 }
 
 
-float RasterLookupTable::getScoreDump(const smPoint * points, const unsigned numPoints, const ScanTransform * XYT0,
+float RasterLookupTable::getScoreDump(const frsmPoint * points, const unsigned numPoints, const ScanTransform * XYT0,
     const char * name)
 {
   FILE * f = fopen(name, "w");
@@ -341,7 +341,7 @@ float RasterLookupTable::getScoreDump(const smPoint * points, const unsigned num
   // Evaluate each point for a fixed transform
   for (unsigned pidx = 0; pidx < numPoints; pidx++) {
     // project the point
-    smPoint p = points[pidx];
+    frsmPoint p = points[pidx];
     double x = p.x * ct - p.y * st + XYT0->x;
     double y = p.x * st + p.y * ct + XYT0->y;
     int ix, iy;
@@ -354,7 +354,7 @@ float RasterLookupTable::getScoreDump(const smPoint * points, const unsigned num
 }
 
 
-ScanTransform RasterLookupTable::evaluate2D(const smPoint * points, const unsigned numPoints,
+ScanTransform RasterLookupTable::evaluate2D(const frsmPoint * points, const unsigned numPoints,
     const ScanTransform * XYT0, const ScanTransform * prior, int ixrange, int iyrange, int ixdim, int iydim,
     float * scores, int * bestScoreIndX, int *bestScoreIndY)
 {
@@ -370,11 +370,11 @@ ScanTransform RasterLookupTable::evaluate2D(const smPoint * points, const unsign
 
   // Evaluate each point for a fixed rotation but variable
   // translation
-  sm_tictoc("forloop_acum");
+  frsm_tictoc("forloop_acum");
   for (unsigned pidx = 0; pidx < numPoints; pidx++) {
 
     // project the point
-    smPoint p = points[pidx];
+    frsmPoint p = points[pidx];
     double x = p.x * ct - p.y * st + XYT0->x;
     double y = p.x * st + p.y * ct + XYT0->y;
 
@@ -390,11 +390,11 @@ ScanTransform RasterLookupTable::evaluate2D(const smPoint * points, const unsign
     // (ix0,iy0)->(ix0+ixdim-1,iy0+iydim-1) and the box
     // (0,0)->(width-1, height-1). This will be our actual
     // search window.
-    int bx0 = sm_imax(ix0, 0);
-    int by0 = sm_imax(iy0, 0);
+    int bx0 = frsm_imax(ix0, 0);
+    int by0 = frsm_imax(iy0, 0);
 
-    int bx1 = sm_imin(ix0 + ixdim - 1, width - 1);
-    int by1 = sm_imin(iy0 + iydim - 1, height - 1);
+    int bx1 = frsm_imin(ix0 + ixdim - 1, width - 1);
+    int by1 = frsm_imin(iy0 + iydim - 1, height - 1);
 
     if (by1 < by0 || bx1 < bx0)
       continue; //point is way off map!
@@ -424,7 +424,7 @@ ScanTransform RasterLookupTable::evaluate2D(const smPoint * points, const unsign
 #endif
 
   }
-  sm_tictoc("forloop_acum");
+  frsm_tictoc("forloop_acum");
 
   //factor in wide gaussian prior
   if (prior->score > .1) {
@@ -434,7 +434,7 @@ ScanTransform RasterLookupTable::evaluate2D(const smPoint * points, const unsign
         int sidx = sy * ixdim + sx;
         scoresToWorld(XYT0, ixrange, iyrange, sx, sy, &x, &y);
         //assuming diag covariance
-        scores[sidx] *= exp(-1.0 / prior->score * (sm_sq(x - prior->x) + sm_sq(y - prior->y)));
+        scores[sidx] *= exp(-1.0 / prior->score * (frsm_sq(x - prior->x) + frsm_sq(y - prior->y)));
       }
     }
   }
@@ -484,7 +484,7 @@ bool score_entry_comp(const score_entry & i, const score_entry & j)
 }
 
 /** Perform a brute-force search in 3DOFs. * */
-ScanTransform RasterLookupTable::evaluate3D_multiRes(RasterLookupTable * rlt_high_res, const smPoint * points,
+ScanTransform RasterLookupTable::evaluate3D_multiRes(RasterLookupTable * rlt_high_res, const frsmPoint * points,
     const unsigned numPoints, const ScanTransform * prior, double xrange, double yrange, double thetarange,
     double thetastep, int hitThresh, int * xSat, int *ySat, int * thetaSat)
 {
@@ -682,33 +682,33 @@ ScanTransform RasterLookupTable::evaluate3D_multiRes(RasterLookupTable * rlt_hig
       continue;
 
     //        K = K+ x*x'*p;
-    sm_vector_vector_outer_product_3d(x, x, Ktmp);
-    sm_vector_scale_nd(Ktmp, 9, prob);
-    sm_vector_add_nd(K, Ktmp, 9, K);
+    frsm_vector_vector_outer_product_3d(x, x, Ktmp);
+    frsm_vector_scale_nd(Ktmp, 9, prob);
+    frsm_vector_add_nd(K, Ktmp, 9, K);
     //        u = u+x*p;
-    sm_vector_scale_3d(x, prob);
-    sm_vector_add_3d(u, x, u);
+    frsm_vector_scale_3d(x, prob);
+    frsm_vector_add_3d(u, x, u);
     //        s = s+p;
     s += prob;
   }
   //    fclose(f);
 
   //sig_hat = 1/s*K-1/s^2*u*u'
-  sm_vector_scale_nd(K, 9, 1.0 / s);
+  frsm_vector_scale_nd(K, 9, 1.0 / s);
 
   double u_outer[9];
-  sm_vector_vector_outer_product_3d(u, u, u_outer);
-  sm_vector_scale_nd(u_outer, 9, 1.0 / (s * s));
+  frsm_vector_vector_outer_product_3d(u, u, u_outer);
+  frsm_vector_scale_nd(u_outer, 9, 1.0 / (s * s));
 
   double cov[9];
-  sm_vector_sub_nd(K, u_outer, 9, cov);
+  frsm_vector_sub_nd(K, u_outer, 9, cov);
   cov[8] = fmax(cov[8], 1e-3); //often times the top 85% will all be the same theta
   memcpy(bestResult.sigma, cov, 9 * sizeof(double));
 
 #if DRAW_COST_SURFACE
   //draw score cloud with lcmgl
   static lcm_t * lcm = lcm_create(NULL);
-  static bot_lcmgl_t *lcmgl = bot_lcmgl_init(lcm, "sm_scores");
+  static bot_lcmgl_t *lcmgl = bot_lcmgl_init(lcm, "frsm_scores");
   bot_lcmgl_push_attrib(lcmgl,GL_DEPTH_BUFFER_BIT | GL_POINT_BIT | GL_CURRENT_BIT);
   bot_lcmgl_enable(lcmgl,GL_DEPTH_TEST);
   bot_lcmgl_depth_func(lcmgl,GL_LESS);
@@ -716,9 +716,9 @@ ScanTransform RasterLookupTable::evaluate3D_multiRes(RasterLookupTable * rlt_hig
   bot_lcmgl_point_size(lcmgl, 6);
   bot_lcmgl_begin(lcmgl, GL_POINTS);
   for (unsigned int i = 0; i < cov_samples.size(); i++) {
-    if (fabs(sm_angle_subtract(cov_samples[i].x[2],bestResult.theta))>.01 ||cov_samples[i].p/maxProb <VAR_COMP_THRESH)
+    if (fabs(frsm_angle_subtract(cov_samples[i].x[2],bestResult.theta))>.01 ||cov_samples[i].p/maxProb <VAR_COMP_THRESH)
     continue;
-    float * color3fv = sm_color_util_jet(cov_samples[i].p/maxProb);
+    float * color3fv = frsm_color_util_jet(cov_samples[i].p/maxProb);
     bot_lcmgl_color3f(lcmgl, color3fv[0], color3fv[1], color3fv[2]);
     //      double x = cov_samples[i].x[0]-bestResult.x;
     //      double y = cov_samples[i].x[1]-bestResult.y;
@@ -728,9 +728,9 @@ ScanTransform RasterLookupTable::evaluate3D_multiRes(RasterLookupTable * rlt_hig
   }
 
   for (unsigned int i = 0; i < cov_samples.size(); i++) {
-    if (fabs(sm_angle_subtract(cov_samples[i].x[2],bestResult.theta))>.01)
+    if (fabs(frsm_angle_subtract(cov_samples[i].x[2],bestResult.theta))>.01)
     continue;
-    float * color3fv = sm_color_util_jet(cov_samples[i].p/maxProb);
+    float * color3fv = frsm_color_util_jet(cov_samples[i].p/maxProb);
     bot_lcmgl_color3f(lcmgl, color3fv[0], color3fv[1], color3fv[2]);
     //      double x = cov_samples[i].x[0]-bestResult.x;
     //      double y = cov_samples[i].x[1]-bestResult.y;
@@ -761,7 +761,7 @@ ScanTransform RasterLookupTable::evaluate3D_multiRes(RasterLookupTable * rlt_hig
 }
 
 /** Perform a brute-force search in 3DOFs. * */
-ScanTransform RasterLookupTable::evaluate3D(const smPoint * points, const unsigned numPoints,
+ScanTransform RasterLookupTable::evaluate3D(const frsmPoint * points, const unsigned numPoints,
     const ScanTransform * prior, double xrange, double yrange, double thetarange, double thetastep, int hitThresh,
     int * xSat, int *ySat, int * thetaSat)
 {
@@ -809,7 +809,7 @@ ScanTransform RasterLookupTable::evaluate3D(const smPoint * points, const unsign
     dtheta += thetastep;
   }
 
-  sm_tictoc("compute_Variance");
+  frsm_tictoc("compute_Variance");
   //compute covariance by fitting multivariate gaussian directly
   //initialize the variables for the covariance computation
   double K[9] = { 0 };
@@ -836,12 +836,12 @@ ScanTransform RasterLookupTable::evaluate3D(const smPoint * points, const unsign
         //                fprintf(f,"p %f %f %f %f\n",x[0],x[1],x[2],prob);
 
         //        K = K+ x*x'*p;
-        sm_vector_vector_outer_product_3d(x, x, Ktmp);
-        sm_vector_scale_nd(Ktmp, 9, prob);
-        sm_vector_add_nd(K, Ktmp, 9, K);
+        frsm_vector_vector_outer_product_3d(x, x, Ktmp);
+        frsm_vector_scale_nd(Ktmp, 9, prob);
+        frsm_vector_add_nd(K, Ktmp, 9, K);
         //        u = u+x*p;
-        sm_vector_scale_3d(x, prob);
-        sm_vector_add_3d(u, x, u);
+        frsm_vector_scale_3d(x, prob);
+        frsm_vector_add_3d(u, x, u);
         //        s = s+p;
         s += prob;
       }
@@ -850,24 +850,24 @@ ScanTransform RasterLookupTable::evaluate3D(const smPoint * points, const unsign
   //    fclose(f);
 
   //sig_hat = 1/s*K-1/s^2*u*u'
-  sm_vector_scale_nd(K, 9, 1.0 / s);
+  frsm_vector_scale_nd(K, 9, 1.0 / s);
 
   double u_outer[9];
-  sm_vector_vector_outer_product_3d(u, u, u_outer);
-  sm_vector_scale_nd(u_outer, 9, 1.0 / (s * s));
+  frsm_vector_vector_outer_product_3d(u, u, u_outer);
+  frsm_vector_scale_nd(u_outer, 9, 1.0 / (s * s));
 
   double cov[9];
-  sm_vector_sub_nd(K, u_outer, 9, cov);
+  frsm_vector_sub_nd(K, u_outer, 9, cov);
   cov[8] = fmax(cov[8], 1e-3); //often times the top 85% will all be the same theta
   memcpy(bestResult.sigma, cov, 9 * sizeof(double));
 
 
-  sm_tictoc("compute_Variance");
+  frsm_tictoc("compute_Variance");
 
 #if DRAW_COST_SURFACE
   //draw score cloud with lcmgl
   static lcm_t * lcm = lcm_create(NULL);
-  static bot_lcmgl_t *lcmgl = bot_lcmgl_init(lcm, "sm_scores2");
+  static bot_lcmgl_t *lcmgl = bot_lcmgl_init(lcm, "frsm_scores2");
   bot_lcmgl_push_attrib(lcmgl,GL_DEPTH_BUFFER_BIT | GL_POINT_BIT | GL_CURRENT_BIT);
   bot_lcmgl_enable(lcmgl,GL_DEPTH_TEST);
   bot_lcmgl_depth_func(lcmgl,GL_LESS);
@@ -883,9 +883,9 @@ ScanTransform RasterLookupTable::evaluate3D(const smPoint * points, const unsign
         prob = exp(prob)/2.71828183;
         scoresToWorld(prior, ixrange, iyrange, sx, sy, &x[0], &x[1]);
         x[2] = prior->theta - thetarange + st * thetastep;
-        if (fabs(sm_angle_subtract(x[2],bestResult.theta))>.01)
+        if (fabs(frsm_angle_subtract(x[2],bestResult.theta))>.01)
         continue;
-        float * color3fv = sm_color_util_jet(prob/maxProb);
+        float * color3fv = frsm_color_util_jet(prob/maxProb);
         bot_lcmgl_color3f(lcmgl, color3fv[0], color3fv[1], color3fv[2]);
         bot_lcmgl_vertex3f(lcmgl, x[0]+1,x[1] ,prob/maxProb);
 
@@ -947,14 +947,14 @@ LutKernel::LutKernel(double sigma)
 {
   //make the square kernel for the endpoints
   kernel_size = computeKernelSize(sigma, 0, 32);
-  square_kernel = (uint8_t *) calloc(sm_sq(kernel_size), sizeof(uint8_t));
+  square_kernel = (uint8_t *) calloc(frsm_sq(kernel_size), sizeof(uint8_t));
   uint8_t * square_kernel_p = square_kernel;
   for (int i = 0; i < kernel_size; i++) {
     for (int j = 0; j < kernel_size; j++) {
       int center = kernel_size / 2;
       double x = i - center;
       double y = j - center;
-      double d = sqrt(sm_sq(x) + sm_sq(y));
+      double d = sqrt(frsm_sq(x) + frsm_sq(y));
       int val = round(255.0 * exp(-d / sigma));
       square_kernel_p[j * kernel_size + i] = (uint8_t) val;
     }
@@ -989,4 +989,4 @@ LutKernel::~LutKernel()
     free(line_kernels);
 }
 
-}//namespace scanmatch
+}//namespace frsm
