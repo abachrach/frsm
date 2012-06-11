@@ -12,8 +12,8 @@
  * namespace: frsm
  */
 
-#ifndef SCANMATCHER_H_
-#define SCANMATCHER_H_
+#ifndef _FRSM_H_
+#define _FRSM_H_
 
 #include "RasterLookupTable.hpp"
 #include "Contour.hpp"
@@ -26,17 +26,17 @@
 namespace frsm {
 /*
  * matchingMode indicates which type of matching should be applied
- * SM_GRID_ONLY   - don't run coordinate ascent
- * SM_GRID_COORD  - run coordinate ascent after grid search (a safe default)
- * SM_Y_GRID_COORD- run coordinate ascent on y-theta for height matching after grid
- * SM_RUN_GRID    - dummy enum for separating the mode types
- * SM_COORD_ONLY  - only run the coordinate ascent
- * SM_Y_COORD_ONLY- only run the coordinate ascent on y-theta for height matching
+ * FRSM_GRID_ONLY   - don't run coordinate ascent
+ * FRSM_GRID_COORD  - run coordinate ascent after grid search (a safe default)
+ * FRSM_Y_GRID_COORD- run coordinate ascent on y-theta for height matching after grid
+ * FRSM_RUN_GRID    - dummy enum for separating the mode types
+ * FRSM_COORD_ONLY  - only run the coordinate ascent
+ * FRSM_Y_COORD_ONLY- only run the coordinate ascent on y-theta for height matching
  */
 typedef enum {
-  SM_GRID_ONLY = 0, SM_GRID_COORD = 1, SM_Y_GRID_COORD = 2, SM_RUN_GRID = 3, //dummy enum... don't use
-  SM_COORD_ONLY = 4,
-  SM_Y_COORD_ONLY = 5
+  FRSM_GRID_ONLY = 0, FRSM_GRID_COORD = 1, FRSM_Y_GRID_COORD = 2, FRSM_RUN_GRID = 3, //dummy enum... don't use
+  FRSM_COORD_ONLY = 4,
+  FRSM_Y_COORD_ONLY = 5
 //don't search in x (for height matching)
 } frsm_incremental_matching_modes_t;
 
@@ -377,4 +377,4 @@ private:
 
 }
 
-#endif /*SCANMATCHER_H_*/
+#endif /*_FRSM_H_*/

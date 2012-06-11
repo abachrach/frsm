@@ -45,7 +45,7 @@ ScanMatcher::ScanMatcher(double metersPerPixel_, double thetaResolution_, int us
   maxSearchRangeXY = .25;
   initialSearchRangeTheta = .1;
   maxSearchRangeTheta = .2;
-  matchingMode = SM_GRID_COORD;
+  matchingMode = FRSM_GRID_COORD;
   addScanHitThresh = .8;
 
   //threading stuff
@@ -519,7 +519,7 @@ ScanTransform ScanMatcher::coordAscentMatch(frsmPoint * points, unsigned numPoin
   int numRounds = 5;
   //at each round, try this many steps
   int max_steps = 100;
-  if (matchingMode > SM_RUN_GRID) {
+  if (matchingMode > FRSM_RUN_GRID) {
     max_steps = 1000;
   }
   //start with a step size that is half the brute force search's resolution
@@ -530,7 +530,7 @@ ScanTransform ScanMatcher::coordAscentMatch(frsmPoint * points, unsigned numPoin
 
   //if matching mode is Y only, start with the "Right" step
   move_type_t startMove = Front;
-  if (matchingMode == SM_Y_COORD_ONLY || matchingMode == SM_Y_GRID_COORD)
+  if (matchingMode == FRSM_Y_COORD_ONLY || matchingMode == FRSM_Y_GRID_COORD)
     startMove = Right;
 
   ScanTransform currentTrans = *startTrans;
@@ -759,11 +759,11 @@ ScanTransform ScanMatcher::matchSuccessive(frsmPoint * points, unsigned numPoint
 
     int numTries = 3;
     int tr = 0;
-    if (matchingMode == SM_Y_GRID_COORD) {
+    if (matchingMode == FRSM_Y_GRID_COORD) {
       xRange1 = 0; //gets rounded up to 1 pixel
       numTries = 1;
     }
-    if (matchingMode < SM_RUN_GRID) {
+    if (matchingMode < FRSM_RUN_GRID) {
       for (tr = 0; tr < numTries; tr++) {
         xRange1 = fmin(xRange1, maxSearchRangeXY);
         yRange1 = fmin(yRange1, maxSearchRangeXY);
@@ -771,7 +771,7 @@ ScanTransform ScanMatcher::matchSuccessive(frsmPoint * points, unsigned numPoint
         if (tr > 0)
           fprintf(stderr, "xRange=%f, yRange=%f, thetaRange=%f\n", xRange1, yRange1, thetaRange1);
         currentPose = gridMatch(points, numPoints, &poseGuess, xRange1, yRange1, thetaRange1, &xSat, &ySat, &thetaSat);
-        if (matchingMode == SM_Y_GRID_COORD)
+        if (matchingMode == FRSM_Y_GRID_COORD)
           xSat = 0; //x doesn't matter
         if (!(xSat || ySat || thetaSat))
           break;
@@ -808,7 +808,7 @@ ScanTransform ScanMatcher::matchSuccessive(frsmPoint * points, unsigned numPoint
 
       }
 
-      if (matchingMode == SM_GRID_COORD) {
+      if (matchingMode == FRSM_GRID_COORD) {
         frsm_tictoc("GradientAscent Polish");
         ScanTransform polished = coordAscentMatch(points, numPoints, &currentPose);
         currentPose = polished;
@@ -862,7 +862,7 @@ ScanTransform ScanMatcher::matchSuccessive(frsmPoint * points, unsigned numPoint
     frsm_tictoc("scanMatch");
 
   }
-  if (matchingMode == SM_Y_COORD_ONLY || matchingMode == SM_Y_GRID_COORD) {
+  if (matchingMode == FRSM_Y_COORD_ONLY || matchingMode == FRSM_Y_GRID_COORD) {
     currentPose.x = prevPose.x; //don't let things move in x...
   }
 

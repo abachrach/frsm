@@ -1,6 +1,12 @@
 include_directories(${PROJECT_SOURCE_DIR}/src)
 include_directories(${LCMTYPES_INCLUDE_DIRS})
 
+#download the concise-args header
+set(CONCISE_ARGS_FILE ${CMAKE_CURRENT_SOURCE_DIR}/ConciseArgs.hpp)
+if(NOT EXISTS ${CONCISE_ARGS_FILE})
+    file(DOWNLOAD "http://concise-args.googlecode.com/files/ConciseArgs.hpp" ${CONCISE_ARGS_FILE} SHOW_PROGRESS)
+endif()
+
 
 add_executable(frsm scan_matcher.cpp)
 target_link_libraries(frsm z)

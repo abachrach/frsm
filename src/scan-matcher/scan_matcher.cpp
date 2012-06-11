@@ -1,11 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
-#ifndef _GNU_SOURCE
-#define _GNU_SOURCE
-#endif
-#include <getopt.h>
-
 #include <lcm/lcm.h>
 #include <frsm/FRSM.hpp>
 #include <lcmtypes/frsm_rigid_transform_2d_t.h>
@@ -19,20 +14,24 @@
 #include <bot_lcmgl_client/lcmgl.h>
 #include <GL/gl.h>
 
+#include "ConciseArgs.hpp"
+
 using namespace std;
 using namespace frsm;
 
-typedef struct {
+class App {
+public:
   lcm_t * lcm;
   ScanMatcher * sm;
   bot_lcmgl_t * lcmgl;
   int do_drawing;
   int publish_relative;
   int publish_pose;
-  char * lidar_chan;
-  char * odom_chan;
-  char * pose_chan;
+  string lidar_chan;
+  string odom_chan;
+  string pose_chan;
   frsm_laser_type_t laser_type;
+  int scan_skip; //Skip this many scans between processed ones
   int beam_skip; //downsample ranges by only taking 1 out of every beam_skip points
   double spatialDecimationThresh; //don't discard a point if its range is more than this many std devs from the mean range (end of hallway)
   double maxRange; //discard beams with reading further than this value
@@ -47,7 +46,7 @@ typedef struct {
   deque<frsm_planar_lidar_t *> * laser_queue;
   int noDrop;
 
-} app_t;
+};
 
 ////////////////////////////////////////////////////////////////////
 //where all the work is done
@@ -57,7 +56,7 @@ namespace frsm {
 
 void RasterLookupTable_draw_func(void * user)
 {
-  app_t * app = (app_t *) user;
+  App * app = (App *) user;
 
   bot_lcmgl_t * lcmgl = app->lcmgl;
   RasterLookupTable * rlt = app->sm->rlt;
@@ -75,11 +74,9 @@ void RasterLookupTable_draw_func(void * user)
 
 }
 
-
-
 void ScanMatcher_draw_func(void * user)
 {
-  app_t * app = (app_t *) user;
+  App * app = (App *) user;
   ScanMatcher * sm = app->sm;
   bot_lcmgl_t * lcmgl = app->lcmgl;
   if (sm->useThreads) {
@@ -157,7 +154,7 @@ void * RasterLookupTable_to_msg(void * user)
 
 }
 
-void draw(app_t * app, frsmPoint * points, unsigned numPoints, const ScanTransform * T)
+void draw(App * app, frsmPoint * points, unsigned numPoints, const ScanTransform * T)
 {
   ScanMatcher_draw_func(app);
 
@@ -175,7 +172,7 @@ void draw(app_t * app, frsmPoint * points, unsigned numPoints, const ScanTransfo
 
   //draw the robot location
 
-  bot_lcmgl_line_width(lcmgl,4);
+  bot_lcmgl_line_width(lcmgl, 4);
   double xyz[3] = { T->x, T->y, 0 };
   bot_lcmgl_color3f(lcmgl, 0, 0, 1);
   bot_lcmgl_circle(lcmgl, xyz, .5);
@@ -189,19 +186,21 @@ void draw(app_t * app, frsmPoint * points, unsigned numPoints, const ScanTransfo
   bot_lcmgl_switch_buffer(app->lcmgl);
 }
 
-static void laser_handler(const lcm_recv_buf_t *rbuf __attribute__((unused)), const char * channel __attribute__((unused)), const frsm_planar_lidar_t * msg,
-    void * user  __attribute__((unused)))
+static void laser_handler(const lcm_recv_buf_t *rbuf __attribute__((unused)),
+    const char * channel __attribute__((unused)), const frsm_planar_lidar_t * msg,
+    void * user)
 {
-  app_t * app = (app_t *) user;
+  App * app = (App *) user;
+
   pthread_mutex_lock(&app->lcm_data_mutex);
   app->laser_queue->push_back(frsm_planar_lidar_t_copy(msg));
   pthread_mutex_unlock(&app->lcm_data_mutex);
   pthread_cond_broadcast(&app->newLcmData_cv);
 }
 
-static void process_laser(const frsm_planar_lidar_t * msg, void * user  __attribute__((unused)))
+static void process_laser(const frsm_planar_lidar_t * msg, void * user __attribute__((unused)))
 {
-  app_t * app = (app_t *) user;
+  App * app = (App *) user;
   frsm_tictoc("process_laser");
   frsm_tictoc("recToSend");
 
@@ -243,7 +242,7 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user  __attrib
   memcpy(cur_odom.cov, r.sigma, 9 * sizeof(double));
 
   if (!app->publish_relative)
-    frsm_rigid_transform_2d_t_publish(app->lcm, app->odom_chan, &cur_odom);
+    frsm_rigid_transform_2d_t_publish(app->lcm, app->odom_chan.c_str(), &cur_odom);
   else {
     //compute the relative odometry
     if (app->prev_odom.utime > 0) {
@@ -257,7 +256,7 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user  __attrib
       rel_odom.theta = frsm_angle_subtract(cur_odom.theta, app->prev_odom.theta);
       //rotate the covariance estimate to body frame
       frsm_rotateCov2D(cur_odom.cov, -cur_odom.theta, rel_odom.cov);
-      frsm_rigid_transform_2d_t_publish(app->lcm, app->odom_chan, &rel_odom);
+      frsm_rigid_transform_2d_t_publish(app->lcm, app->odom_chan.c_str(), &rel_odom);
     }
 
   }
@@ -272,7 +271,7 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user  __attrib
     double rpy[3] = { 0, 0, cur_odom.theta };
     bot_roll_pitch_yaw_to_quat(rpy, pose.orientation);
 
-    frsm_pose_t_publish(app->lcm, app->pose_chan, &pose);
+    frsm_pose_t_publish(app->lcm, app->pose_chan.c_str(), &pose);
   }
   frsm_tictoc("recToSend");
 
@@ -310,48 +309,6 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user  __attrib
 
 }
 
-void app_destroy(app_t *app)
-{
-  // dump timing stats
-  frsm_tictoc(NULL);
-
-  if (app) {
-    if (app->lidar_chan)
-      free(app->lidar_chan);
-    if (app->odom_chan)
-      free(app->odom_chan);
-    if (app->pose_chan)
-      free(app->pose_chan);
-
-    lcm_destroy(app->lcm);
-    //TODO: kill thread
-
-    free(app);
-  }
-
-}
-
-static void usage(const char *name)
-{
-  fprintf(stderr, "usage: %s [options]\n"
-    "\n"
-    "  -h, --help                      Shows this help text and exits\n"
-    "  -l, --lidar <LCM CHANNEL>       Input lcm channel default:\"LASER\"\n"
-    "  -o, --odometry <LCM CHANNEL>    Output odometry channel default:\"<lidar chan>_ODOMETRY\"\n"
-    "  -r, --relative                  Publish relative\n"
-    "  -p, --pose   <LCM CHANNEL>      Publish pose message for easy viewing in viewer default:\"POSE\"\n"
-    "  -d, --draw                      Show window with scan matches \n"
-    "  -n, --nodrop                    don't drop laser messages if we're getting behind \n"
-    "  -v, --verbose                   Be verbose\n"
-    "  -m, --mode  \"HOKUYO_UTM\"|\"SICK\" configures low-level options.\n"
-    "\n"
-    "Low-level options:\n"
-    "  -M, --mask <min,max>            Mask min max angles in (radians)\n"
-    "  -B, --beamskip <n>              Skip every n beams \n"
-    "  -D, --decimation <value>        Spatial decimation threshold (meters?)\n"
-    "  -R, --range <range>             Maximum range (meters)\n", name);
-}
-
 sig_atomic_t still_groovy = 1;
 
 static void sig_action(int signal, siginfo_t *s, void *user)
@@ -363,7 +320,7 @@ static void sig_action(int signal, siginfo_t *s, void *user)
 static void *
 processingFunc(void * user)
 {
-  app_t * app = (app_t *) user;
+  App * app = (App *) user;
   frsm_planar_lidar_t * local_laser = NULL;
   pthread_mutex_lock(&app->lcm_data_mutex);
   while (1) {
@@ -407,10 +364,10 @@ int main(int argc, char *argv[])
 {
   setlinebuf(stdout);
 
-  app_t *app = (app_t *) calloc(1, sizeof(app_t));
+  App *app = new App;
 
-  app->lidar_chan = strdup("LASER");
-  app->pose_chan = strdup("POSE");
+  app->lidar_chan = "LASER";
+  app->pose_chan = "POSE";
   app->verbose = 0;
   app->do_drawing = 0;
   app->publish_relative = 0;
@@ -418,102 +375,58 @@ int main(int argc, char *argv[])
 
   // set to default values
   app->laser_type = SM_HOKUYO_UTM;
-  //TODO:these should be read from command line or something...
-  //parameters for a hokuyo with the helicopters mirror's attached
   app->validBeamAngles[0] = -2.1;
   app->validBeamAngles[1] = 2.1;
+  std::stringstream ss;
+  ss << app->validBeamAngles[0] << "," << app->validBeamAngles[1];
+  string fov_string = ss.str();
   app->beam_skip = 3;
   app->spatialDecimationThresh = .2;
   app->maxRange = 29.7;
-  app->laser_queue = new deque<frsm_planar_lidar_t *> ();
+  app->laser_queue = new deque<frsm_planar_lidar_t *>();
 
-  const char *optstring = "hl:o:drvm:R:B:D:M:p::n:";
-  char c;
-  struct option long_opts[] = { { "help", no_argument, 0, 'h' },
-      { "lidar", required_argument, 0, 'l' },
-      { "odometry", required_argument, 0, 'o' },
-      { "draw", no_argument, 0, 'd' },
-      { "relative", no_argument, 0, 'r' },
-      { "nodrop", no_argument, 0, 'n' },
-      { "mode", required_argument, 0, 'm' },
-      { "range", required_argument, 0, 'R' },
-      { "beamskip", required_argument, 0, 'B' },
-      { "decimation", required_argument, 0, 'D' },
-      { "mask", required_argument, 0, 'M' },
-      { "pose", optional_argument, 0, 'p' },
-      { "verbose", no_argument, 0, 'v' },
-      { 0, 0, 0, 0 } };
+  bool isUtm = true;
+  bool isUrg = false, isSick = false;
 
-  while ((c = getopt_long(argc, argv, optstring, long_opts, 0)) >= 0) {
-    switch (c) {
-    case 'l':
-      free(app->lidar_chan);
-      app->lidar_chan = strdup(optarg);
-      break;
-    case 'o':
-      app->odom_chan = strdup(optarg);
-      break;
-    case 'r':
-      app->publish_relative = 1;
-      printf("INFO: Publish relative enabled\n");
-      break;
-    case 'p':
-      app->publish_pose = 1;
-      printf("INFO: Publish pose message enabled\n");
-      if (optarg != NULL) {
-        app->pose_chan = strdup(optarg);
-      }
-      break;
-    case 'n':
-      app->noDrop = 1;
-      break;
-    case 'v':
-      app->verbose = 1;
-      break;
-    case 'd':
-      app->do_drawing = 1;
-      printf("INFO: Drawing enabled\n");
+  ConciseArgs opt(argc, argv);
+  opt.add(app->lidar_chan, "l", "lidar_chan", "Input lidar lcm channel");
+  opt.add(app->odom_chan, "o", "odom_chan", "Output odometry lcm channel");
+  opt.add(app->publish_relative, "r", "relative", "Publish relative odometry");
+  opt.add(app->publish_pose, "p", "publish_pose", "Enable publishing of POSE lcm message");
+  opt.add(app->scan_skip, "s", "scan_skip", "Skip this many scans between ones that get processed");
+  opt.add(app->noDrop, "n", "no_drop", "Don't drop laser messages if we're getting behind");
+  opt.add(app->do_drawing, "d", "do_drawing", "Draw the map and pose using LCMGL");
+  opt.add(app->verbose, "v", "verbose");
+  opt.addUsageSeperator("\nLow-level options");
+  opt.add(isUtm, "T", "UTM", "lidar type is a Hokuyo UTM (best tested/default)");
+  opt.add(isUrg, "G", "URG", "lidar type is a Hokuyo URG");
+  opt.add(isSick, "S", "SICK", "lidar type is a SICK LMS");
 
-      break;
-    case 'm':
-      if (optarg && optarg[0] == 'S') {
-        // assume we want sick mode:
-        app->laser_type = SM_SICK_LMS;
-        app->maxRange = 79.0;
-        app->beam_skip = 0;
-        //                app->spatialDecimationThresh =0;
-        // anything else required?
-      }
-      break;
-    case 'R':
-      app->maxRange = strtod(optarg, 0);
-      break;
-    case 'B':
-      app->beam_skip = atoi(optarg);
-      break;
-    case 'D':
-      app->spatialDecimationThresh = strtod(optarg, 0);
-      break;
-    case 'M':
-      sscanf(optarg, "%f,%f", &app->validBeamAngles[0], &app->validBeamAngles[1]);
-      break;
-    case 'h':
-    default:
-      usage(argv[0]);
-      return 1;
-    }
+  opt.addUsageSeperator("\nLow-level options (override settings from lidar type)");
+  opt.add(app->maxRange, "R", "max_range", "Max range of the lidar\n");
+  opt.add(app->beam_skip, "B", "beam_skip", "Skipe every n beams");
+  opt.add(app->spatialDecimationThresh, "D", "spatial_decimation", "Spatial decimation threshold in meters");
+  opt.add(fov_string, "F", "fov", "Valid portion of the field of view <min,max> in radians");
+
+  int numModes = (int) isUtm + (int) isUrg + (int) isSick;
+  if (numModes > 1) {
+    fprintf(stderr, "Only one lidar type may be specified at once\n");
+    opt.usage(true);
   }
 
-  if (!app->odom_chan) {
-    int max_len = strlen(app->lidar_chan) + 16;
-    //printf("max_len:%d\n",max_len);
-    app->odom_chan = (char *) calloc(1, max_len * sizeof(char));
-    snprintf(app->odom_chan, max_len, "%s_ODOMETRY", app->lidar_chan);
+  if (isUtm) {
+    //TODO:
+  }
+  if (isUtm) {
+    //TODO:
+  }
+  if (isUtm) {
+    //TODO:
   }
 
   if (app->verbose) {
-    printf("INFO: Listening to:%s\n", app->lidar_chan);
-    printf("INFO: Publishing on:%s\n", app->odom_chan);
+    printf("INFO: Listening to:%s\n", app->lidar_chan.c_str());
+    printf("INFO: Publishing on:%s\n", app->odom_chan.c_str());
     printf("INFO: Do Draw:%d\n", app->do_drawing);
     printf("INFO: Publish relative:%d\n", app->publish_relative);
     printf("INFO: Max Range:%lf\n", app->maxRange);
@@ -528,7 +441,7 @@ int main(int argc, char *argv[])
   //hardcoded scan matcher params
   double metersPerPixel = .02; //translational resolution for the brute force search
   double thetaResolution = .01; //angular step size for the brute force search
-  frsm_incremental_matching_modes_t matchingMode = SM_COORD_ONLY; //use gradient descent to improve estimate after brute force search
+  frsm_incremental_matching_modes_t matchingMode = FRSM_GRID_COORD; //use gradient descent to improve estimate after brute force search
   int useMultires = 3; // low resolution will have resolution metersPerPixel * 2^useMultiRes
 
   double initialSearchRangeXY = .15; //nominal range that will be searched over
@@ -537,7 +450,6 @@ int main(int argc, char *argv[])
   //SHOULD be set greater than the initialSearchRange
   double maxSearchRangeXY = .3; //if a good match isn't found I'll expand and try again up to this size...
   double maxSearchRangeTheta = .2; //if a good match isn't found I'll expand and try again up to this size...
-
 
   int maxNumScans = 30; //keep around this many scans in the history
   double addScanHitThresh = .80; //add a new scan to the map when the number of "hits" drops below this
@@ -567,15 +479,16 @@ int main(int argc, char *argv[])
   pthread_create(&app->processor_thread, 0, (void *
   (*)(void *)) processingFunc, (void *) app);
 
-  /* LCM */
   app->lcm = lcm_create(NULL);
-  app->lcmgl = bot_lcmgl_init(app->lcm, "FRSM");
   if (!app->lcm) {
     fprintf(stderr, "ERROR: lcm_create() failed\n");
     return 1;
   }
+  if (app->do_drawing)
+    app->lcmgl = bot_lcmgl_init(app->lcm, "FRSM");
 
-  frsm_planar_lidar_t_subscribe(app->lcm, app->lidar_chan, laser_handler, app);
+  //subscribe to lidar messages
+  frsm_planar_lidar_t_subscribe(app->lcm, app->lidar_chan.c_str(), laser_handler, app);
 
   // setup sigaction();
   struct sigaction new_action;
@@ -591,8 +504,6 @@ int main(int argc, char *argv[])
   /* sit and wait for messages */
   while (still_groovy)
     lcm_handle(app->lcm);
-
-  app_destroy(app);
 
   return 0;
 }
