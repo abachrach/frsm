@@ -5,12 +5,16 @@ I intend to license this software under GNU GPL license... however the copyright
 The build system uses the PODs framework... for more info see:
 https://groups.csail.mit.edu/rrg/Wiki/index.php?title=Pods
 
-It depends on:
-opencv
-if Intel's IPP libraries are available/installed, they will be used and provide a ~2X speedup
+libfrsm should have no external dependancies (lcm and libbot2 are optional, and used for visualization only).
 
-The LCM based incremental scan matcher depend on libbot2:
-svn co https://svn.csail.mit.edu/libbot2
+The scan-matcher application depends on:
+- lcm        https://code.google.com/p/lcm/
+- libbot2    https://code.google.com/p/libbot/
+
+
+
+If Intel's IPP libraries are available/installed, they will be used and provide a ~2X speedup. I have only tested with version 6
+
 
 
 

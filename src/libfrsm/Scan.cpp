@@ -11,7 +11,7 @@ namespace frsm{
 
 Scan::Scan() :
     points(NULL), ppoints(NULL), numPoints(0), utime(-1), laser_type(
-            SM_DUMMY_LASER)
+            FRSM_DUMMY_LASER)
 {
     memset(&T, 0, sizeof(T));
 }

@@ -24,9 +24,9 @@ public:
   lcm_t * lcm;
   ScanMatcher * sm;
   bot_lcmgl_t * lcmgl;
-  int do_drawing;
-  int publish_relative;
-  int publish_pose;
+  bool do_drawing;
+  bool publish_relative;
+  bool publish_pose;
   string lidar_chan;
   string odom_chan;
   string pose_chan;
@@ -37,7 +37,7 @@ public:
   double maxRange; //discard beams with reading further than this value
   float validBeamAngles[2]; //valid part of the field of view of the laser in radians, 0 is the center beam
   frsm_rigid_transform_2d_t prev_odom;
-  int verbose;
+  bool verbose;
 
   //lcm reading thread stuff
   pthread_t processor_thread;
@@ -54,135 +54,12 @@ public:
 
 namespace frsm {
 
-void RasterLookupTable_draw_func(void * user)
-{
-  App * app = (App *) user;
-
-  bot_lcmgl_t * lcmgl = app->lcmgl;
-  RasterLookupTable * rlt = app->sm->rlt;
-  int texid = bot_lcmgl_texture2d(lcmgl, rlt->distdata, rlt->width, rlt->height, rlt->width * sizeof(uint8_t),
-      BOT_LCMGL_LUMINANCE, BOT_LCMGL_COMPRESS_ZLIB);
-
-  bot_lcmgl_enable(lcmgl, GL_BLEND);
-  bot_lcmgl_enable(lcmgl, GL_DEPTH_TEST);
-
-  bot_lcmgl_texture_draw_quad(lcmgl, texid, rlt->x0, rlt->y0, 0, rlt->x0, rlt->y1, 0, rlt->x1, rlt->y1, 0, rlt->x1,
-      rlt->y0, 0);
-
-  bot_lcmgl_disable(lcmgl, GL_BLEND);
-  bot_lcmgl_disable(lcmgl, GL_DEPTH_TEST);
-
-}
-
-void ScanMatcher_draw_func(void * user)
-{
-  App * app = (App *) user;
-  ScanMatcher * sm = app->sm;
-  bot_lcmgl_t * lcmgl = app->lcmgl;
-  if (sm->useThreads) {
-    pthread_mutex_lock(&sm->scans_mutex);
-    pthread_mutex_lock(&sm->rlt_mutex);
-  }
-
-  //draw the gridmap
-  RasterLookupTable_draw_func(app);
-
-  // draw each scan.
-  bot_lcmgl_line_width(lcmgl, 2);
-  bot_lcmgl_point_size(lcmgl, 4);
-  list<Scan *>::iterator it;
-  for (it = sm->scans.begin(); it != sm->scans.end(); ++it) {
-    Scan * s = *it;
-    for (unsigned cidx = 0; cidx < s->contours.size(); cidx++) {
-      bot_lcmgl_begin(lcmgl, GL_LINE_STRIP);
-      bot_lcmgl_color3f(lcmgl, 0, 1, 0);
-      for (unsigned i = 0; i < s->contours[cidx]->points.size(); i++) {
-        frsmPoint p0 = s->contours[cidx]->points[i];
-        bot_lcmgl_vertex3f(lcmgl, p0.x, p0.y, 0);
-      }
-      bot_lcmgl_end(lcmgl);
-      bot_lcmgl_color3f(lcmgl, 0, 1, 1);
-      bot_lcmgl_begin(lcmgl, GL_POINTS); //TODO: Is there a way to do this all at once?
-      for (unsigned i = 0; i < s->contours[cidx]->points.size(); i++) {
-        frsmPoint p0 = s->contours[cidx]->points[i];
-        bot_lcmgl_vertex3f(lcmgl, p0.x, p0.y, 0);
-      }
-      bot_lcmgl_end(lcmgl);
-    }
-  }
-
-  if (sm->useThreads) {
-    pthread_mutex_unlock(&sm->scans_mutex);
-    pthread_mutex_unlock(&sm->rlt_mutex);
-  }
-}
-
-void * RasterLookupTable_to_msg(void * user)
-{
-  RasterLookupTable * rlt = (RasterLookupTable *) user;
-  frsm_pixel_map_t * msg = (frsm_pixel_map_t*) calloc(1, sizeof(frsm_pixel_map_t));
-  msg->xy0[0] = rlt->x0;
-  msg->xy0[1] = rlt->y0;
-  msg->xy1[0] = rlt->x1;
-  msg->xy1[1] = rlt->y1;
-  msg->mpp = rlt->metersPerPixel;
-  msg->dimensions[0] = rlt->width;
-  msg->dimensions[1] = rlt->height;
-
-  int num_cells = rlt->width * rlt->height;
-  uLong uncompressed_size = num_cells * sizeof(uint8_t);
-
-  uLong compress_buf_size = uncompressed_size * 1.01 + 12; //with extra space for zlib
-  msg->mapData = (uint8_t *) malloc(compress_buf_size);
-  int compress_return = compress2((Bytef *) msg->mapData, &compress_buf_size, (Bytef *) rlt->distdata,
-      uncompressed_size, Z_BEST_SPEED);
-  if (compress_return != Z_OK) {
-    fprintf(stderr, "ERROR: Could not compress voxel map!\n");
-    exit(1);
-  }
-  //    fprintf(stderr, "uncompressed_size=%ld compressed_size=%ld\n", uncompressed_size, compress_buf_size);
-  msg->datasize = compress_buf_size;
-  msg->compressed = 1;
-
-  //set the data_type
-  msg->data_type = FRSM_PIXEL_MAP_T_TYPE_UINT8;
-
-  //  msg->utime = utime;
-
-  return msg;
-}
-
 }
 
 void draw(App * app, frsmPoint * points, unsigned numPoints, const ScanTransform * T)
 {
-  ScanMatcher_draw_func(app);
-
-  //draw the current scan
-  bot_lcmgl_t * lcmgl = app->lcmgl;
-  bot_lcmgl_point_size(lcmgl, 4);
-  bot_lcmgl_color3f(lcmgl, 1, 0, 0);
-  Scan * s = new Scan(numPoints, points, *T, SM_DUMMY_LASER, 0, false);
-  bot_lcmgl_begin(lcmgl, GL_POINTS);
-  for (int i = 0; i < numPoints; i++) {
-    bot_lcmgl_vertex3f(lcmgl, s->ppoints[i].x, s->ppoints[i].y, 0);
-  }
-  bot_lcmgl_end(lcmgl);
-  delete s;
-
-  //draw the robot location
-
-  bot_lcmgl_line_width(lcmgl, 4);
-  double xyz[3] = { T->x, T->y, 0 };
-  bot_lcmgl_color3f(lcmgl, 0, 0, 1);
-  bot_lcmgl_circle(lcmgl, xyz, .5);
-  double heading[3] = { T->x + cos(T->theta), T->y + sin(T->theta), 0 };
-  bot_lcmgl_begin(lcmgl, GL_LINES);
-  bot_lcmgl_color3f(lcmgl, 1, 1, 0);
-  bot_lcmgl_vertex3f(lcmgl, xyz[0], xyz[1], xyz[2]);
-  bot_lcmgl_vertex3f(lcmgl, heading[0], heading[1], heading[2]);
-  bot_lcmgl_end(lcmgl);
-
+  app->sm->draw_state_lcmgl(app->lcmgl);
+  app->sm->draw_scan_lcmgl(app->lcmgl, points, numPoints, T);
   bot_lcmgl_switch_buffer(app->lcmgl);
 }
 
@@ -374,7 +251,7 @@ int main(int argc, char *argv[])
   app->publish_pose = 0;
 
   // set to default values
-  app->laser_type = SM_HOKUYO_UTM;
+  app->laser_type = FRSM_HOKUYO_UTM;
   app->validBeamAngles[0] = -2.1;
   app->validBeamAngles[1] = 2.1;
   std::stringstream ss;
@@ -407,6 +284,7 @@ int main(int argc, char *argv[])
   opt.add(app->beam_skip, "B", "beam_skip", "Skipe every n beams");
   opt.add(app->spatialDecimationThresh, "D", "spatial_decimation", "Spatial decimation threshold in meters");
   opt.add(fov_string, "F", "fov", "Valid portion of the field of view <min,max> in radians");
+  opt.parse();
 
   int numModes = (int) isUtm + (int) isUrg + (int) isSick;
   if (numModes > 1) {
@@ -414,14 +292,44 @@ int main(int argc, char *argv[])
     opt.usage(true);
   }
 
-  if (isUtm) {
-    //TODO:
+  if (opt.wasParsed("fov")) {
+    if (sscanf(fov_string.c_str(), "%lf,%lf", &app->validBeamAngles[0], &app->validBeamAngles[1]) != 2) {
+      fprintf(stderr, "Invalid FOV string %s\n", fov_string.c_str());
+      opt.usage(true);
+    }
   }
+
   if (isUtm) {
-    //TODO:
+    if (!opt.wasParsed("max_range"))
+      app->maxRange = 29.7;
+    if (!opt.wasParsed("beam_skip"))
+      app->beam_skip = 3;
+    if (!opt.wasParsed("fov")) {
+      app->validBeamAngles[0] = -2.1;
+      app->validBeamAngles[1] = 2.1;
+    }
   }
-  if (isUtm) {
-    //TODO:
+  if (isUrg) {
+    app->laser_type = FRSM_HOKUYO_URG;
+    if (!opt.wasParsed("max_range"))
+      app->maxRange = 4.0;
+    if (!opt.wasParsed("beam_skip"))
+      app->beam_skip = 3;
+    if (!opt.wasParsed("fov")) {
+      app->validBeamAngles[0] = -2.1;
+      app->validBeamAngles[1] = 2.1;
+    }
+  }
+  if (isSick) {
+    app->laser_type = FRSM_SICK_LMS;
+    if (!opt.wasParsed("max_range"))
+      app->maxRange = 79.0;
+    if (!opt.wasParsed("beam_skip"))
+      app->beam_skip = 0;
+    if (!opt.wasParsed("fov")) {
+      app->validBeamAngles[0] = -1.57;
+      app->validBeamAngles[1] = 1.57;
+    }
   }
 
   if (app->verbose) {

@@ -21,6 +21,19 @@
 #include <vector>
 #include <lcm/lcm.h>
 
+#include <occ_map/PixelMap.hpp>
+
+#define HAVE_BOT_LCMGL
+#ifdef HAVE_BOT_LCMGL
+#include <bot_core/bot_core.h>
+#include <bot_lcmgl_client/lcmgl.h>
+#endif
+
+#define HAVE_LCM
+#ifdef HAVE_LCM
+#include <lcmtypes/frsm/pixel_map_t.hpp>
+#endif
+
 namespace frsm {
 
 class LutKernel {
@@ -83,7 +96,8 @@ public:
    *
    */
   ScanTransform
-  evaluate2D(const frsmPoint * points, const unsigned numPoints, const ScanTransform * XYT0, const ScanTransform * prior,
+  evaluate2D(const frsmPoint * points, const unsigned numPoints, const ScanTransform * XYT0,
+      const ScanTransform * prior,
       int ixrange, int iyrange, int ixdim, int iydim, float * scores, int * bestScoreIndX, int *bestScoreIndY);
 
   /**
@@ -165,20 +179,16 @@ public:
   void drawBlurredLine(const frsmPoint *p1, const frsmPoint *p2, const LutKernel * kern);
 
   /**
-   * dumpTable:
-   * dump the contents of this table to an image file (.bmp)
-   */
-  void
-  dumpTable(const char * varName);
-
-  /**
    * worldToTable:
    * accessor function that converts from world coordinates in meters to the table coordinates in pixels
    */
   inline void worldToTable(double x, double y, int * ix, int * iy)
   {
-    *ix = frsm_clamp(round((x - x0) * pixelsPerMeter), 0, width - 1);
-    *iy = frsm_clamp(round((y - y0) * pixelsPerMeter), 0, height - 1);
+    double xy[2] = { x, y };
+    int ixy[2];
+    table->worldToTable(xy, ixy);
+    *ix = ixy[0];
+    *iy = ixy[1];
   }
 
   /**
@@ -187,11 +197,11 @@ public:
    */
   inline void tableToWorld(int ix, int iy, double * x, double * y)
   {
-    //    *x = ((double)ix+0.5) * metersPerPixel + x0; //+.5 puts it in the center of the cell
-    //    *y = ((double)iy+0.5) * metersPerPixel + y0;
-    *x = ((double) ix) * metersPerPixel + x0;
-    *y = ((double) iy) * metersPerPixel + y0;
-
+    int ixy[2] = { ix, iy };
+    double xy[2];
+    table->tableToWorld(ixy, xy);
+    *x = xy[0];
+    *y = xy[1];
   }
 
   /**
@@ -201,11 +211,16 @@ public:
   inline void scoresToWorld(const ScanTransform * XYT0, int ixrange, int iyrange, int sx, int sy, double * x,
       double * y)
   {
-    int ixXYT0, iyXYT0;
-    worldToTable(XYT0->x, XYT0->y, &ixXYT0, &iyXYT0);
-    int ix = ixXYT0 - ixrange + sx;
-    int iy = iyXYT0 - iyrange + sy;
-    tableToWorld(ix, iy, x, y);
+    int iXYT0[2];
+    double dXYTO[2] = { XYT0->x, XYT0->y };
+    table->worldToTable(dXYTO, iXYT0);
+    int ixy[2];
+    ixy[0] = iXYT0[0] - ixrange + sx;
+    ixy[1] = iXYT0[1] - iyrange + sy;
+    double xy[2];
+    table->tableToWorld(ixy, xy);
+    *x = xy[0];
+    *y = xy[1];
   }
 
   /**
@@ -214,7 +229,8 @@ public:
    */
   inline uint8_t readTable(int ix, int iy)
   {
-    return distdata[iy * width + ix];
+    int ixy[2] = { ix, iy };
+    return table->readValue(ixy);
   }
 
   /**
@@ -223,9 +239,8 @@ public:
    */
   inline uint8_t readTable(double x, double y)
   {
-    int ix, iy;
-    worldToTable(x, y, &ix, &iy);
-    return readTable(ix, iy);
+    double xy[2] = { x, y };
+    return table->readValue(xy);
   }
 
   /**
@@ -234,7 +249,8 @@ public:
    */
   inline void writeTable(int ix, int iy, uint8_t v)
   {
-    distdata[iy * width + ix] = v;
+    int ixy[2] = { ix, iy };
+    table->writeValue(ixy, v);
   }
 
   /**
@@ -243,32 +259,54 @@ public:
    */
   inline void writeTable(double x, double y, uint8_t v)
   {
-    int ix, iy;
-    worldToTable(x, y, &ix, &iy);
-    writeTable(ix, iy, v);
+    double xy[2] = { x, y };
+    table->writeValue(xy, v);
   }
 
+#ifdef HAVE_BOT_LCMGL
   /**
-   * RasterLookupTable_save:
-   * declare a friend func with access to all the privates to enable drawing/saving/publishing
-   * of maps from an external
+   * Draw the table via LCMGL in libbot2
    */
-  friend void RasterLookupTable_draw_func(void * user);
-  friend void RasterLookupTable_save_func(void * user);
-  friend void RasterLookupTable_pub_func(void * user);
-  friend void * RasterLookupTable_to_msg(void * user);
+  void draw_lcmgl(bot_lcmgl_t * lcmgl);
+  #endif
 
+#ifdef HAVE_LCM
+  /**
+   * Save the table to a file
+   */
+  void save_to_file(const std::string & channel); //TODO: IMPLIMENT ME!
+  /**
+   * Load the table from a file
+   */
+  void load_from_file(const std::string & channel); //TODO: IMPLIMENT ME!
+
+  /**
+   * Publish the table over LCM
+   */
+  occ_map_pixel_map_t to_lcm_msg();
+
+  /**
+   * Fill the table with data from an LCM message
+   */
+  void from_lcm_msg(const occ_map_pixel_map_t & msg); //TODO: IMPLIMENT ME!
+
+  /**
+   * Publish the table over LCM
+   */
+  void lcm_publish(lcm_t * lcm, const std::string & channel);
+
+#endif
 
 private:
+  occ_map::Uint8PixelMap * table;
+
+  //conveniance variables
   //extremum of the table in meters
   double x0, y0, x1, y1;
   //resolution of the table
   double pixelsPerMeter, metersPerPixel;
   //pixel dimensions
   int width, height;
-
-  //the actual occupancy grid data
-  uint8_t * distdata;
 };
 }
 #endif /*RASTERLOOKUPTABLE_H_*/

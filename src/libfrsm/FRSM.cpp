@@ -130,10 +130,10 @@ ScanMatcher::~ScanMatcher()
   }
 
   if (lutSq != NULL
-    )
+  )
     free(lutSq);
   if (draw_kernels != NULL
-    )
+  )
     delete draw_kernels;
 
 }
@@ -161,17 +161,17 @@ void ScanMatcher::clearScans(bool deleteScans)
   }
   //rlt is no longer valid
   if (rlt != NULL
-    )
+  )
     delete rlt;
   if (rltTmp != NULL
-    )
+  )
     delete rltTmp;
 
   if (rlt_low_res != NULL
-    )
+  )
     delete rlt_low_res;
   if (rltTmp_low_res != NULL
-    )
+  )
     delete rltTmp_low_res;
 
   rlt = NULL;
@@ -248,7 +248,7 @@ void ScanMatcher::rebuildThreadFunc()
         contour_extractor = NULL;
       }
       if (contour_extractor == NULL
-        )
+      )
         contour_extractor = new ContourExtractor(s->laser_type);
       contour_extractor->findContours(s->ppoints, s->numPoints, s->contours);
 
@@ -375,7 +375,8 @@ void ScanMatcher::rebuildRaster_olson(RasterLookupTable ** rasterTable)
       if (v == 0 && !set_lutSq_first_zero) {
         set_lutSq_first_zero = true;
         lutSq_first_zero = i;
-      }assert(v >= 0);
+      }
+      assert(v >= 0);
       assert(v <= 255);
       lutSq[i] = (uint8_t) v;
     }
@@ -409,7 +410,7 @@ void ScanMatcher::rebuildRaster_olson(RasterLookupTable ** rasterTable)
   //  free(lutSq);
 
   if (*rasterTable != NULL
-    )
+  )
     delete *rasterTable;
   *rasterTable = rt;
   return;
@@ -454,7 +455,7 @@ void ScanMatcher::rebuildRaster_blurLine(RasterLookupTable ** rasterTable)
   frsm_tictoc("drawBlurLines");
 
   if (*rasterTable != NULL
-    )
+  )
     delete *rasterTable;
   *rasterTable = rt;
   return;
@@ -663,7 +664,7 @@ void ScanMatcher::addScan(Scan *s, bool rebuildNow)
           contour_extractor = NULL;
         }
         if (contour_extractor == NULL
-          )
+        )
           contour_extractor = new ContourExtractor(s->laser_type);
         contour_extractor->findContours(scan->ppoints, scan->numPoints, scan->contours);
         frsm_tictoc("findContours"); //      s->drawContours();
@@ -692,8 +693,7 @@ void ScanMatcher::addScan(Scan *s, bool rebuildNow)
 
     if (useMultiRes > 0) {
       frsm_tictoc("rebuild_lowRes");
-      if (rlt_low_res != NULL
-        )
+      if (rlt_low_res != NULL)
         delete rlt_low_res;
       rlt_low_res = new RasterLookupTable(rlt, downsampleFactor);
       frsm_tictoc("rebuild_lowRes");
@@ -902,7 +902,7 @@ ScanTransform ScanMatcher::matchSuccessive(frsmPoint * points, unsigned numPoint
     if (verbose)
       fprintf(stderr, "adding first scan\n");
     if (prior != NULL
-      )
+    )
       memcpy(&currentPose, prior, sizeof(currentPose));
     addScan(points, numPoints, &currentPose, laser_type, utime); //do a blocking add...
 
@@ -928,6 +928,73 @@ int ScanMatcher::isUsingIPP()
 #else
   return 0;
 #endif
+}
+
+void ScanMatcher::draw_state_lcmgl(bot_lcmgl_t * lcmgl)
+{
+  if (useThreads) {
+    pthread_mutex_lock(&scans_mutex);
+    pthread_mutex_lock(&rlt_mutex);
+  }
+
+  //draw the gridmap
+  rlt->draw_lcmgl(lcmgl);
+
+  // draw each scan.
+  bot_lcmgl_line_width(lcmgl, 2);
+  bot_lcmgl_point_size(lcmgl, 4);
+  list<Scan *>::iterator it;
+  for (it = scans.begin(); it != scans.end(); ++it) {
+    Scan * s = *it;
+    for (unsigned cidx = 0; cidx < s->contours.size(); cidx++) {
+      bot_lcmgl_begin(lcmgl, LCMGL_LINE_STRIP);
+      bot_lcmgl_color3f(lcmgl, 0, 1, 0);
+      for (unsigned i = 0; i < s->contours[cidx]->points.size(); i++) {
+        frsmPoint p0 = s->contours[cidx]->points[i];
+        bot_lcmgl_vertex3f(lcmgl, p0.x, p0.y, 0);
+      }
+      bot_lcmgl_end(lcmgl);
+      bot_lcmgl_color3f(lcmgl, 0, 1, 1);
+      bot_lcmgl_begin(lcmgl, LCMGL_POINTS); //TODO: Is there a way to do this all at once?
+      for (unsigned i = 0; i < s->contours[cidx]->points.size(); i++) {
+        frsmPoint p0 = s->contours[cidx]->points[i];
+        bot_lcmgl_vertex3f(lcmgl, p0.x, p0.y, 0);
+      }
+      bot_lcmgl_end(lcmgl);
+    }
+  }
+
+  if (useThreads) {
+    pthread_mutex_unlock(&scans_mutex);
+    pthread_mutex_unlock(&rlt_mutex);
+  }
+}
+
+void ScanMatcher::draw_scan_lcmgl(bot_lcmgl_t * lcmgl, frsmPoint * points, unsigned numPoints, const ScanTransform * T)
+{
+  //draw the current scan
+  bot_lcmgl_point_size(lcmgl, 4);
+  bot_lcmgl_color3f(lcmgl, 1, 0, 0);
+  Scan * s = new Scan(numPoints, points, *T, FRSM_DUMMY_LASER, 0, false);
+  bot_lcmgl_begin(lcmgl, LCMGL_POINTS);
+  for (int i = 0; i < numPoints; i++) {
+    bot_lcmgl_vertex3f(lcmgl, s->ppoints[i].x, s->ppoints[i].y, 0);
+  }
+  bot_lcmgl_end(lcmgl);
+  delete s;
+
+  //draw the robot location
+
+  bot_lcmgl_line_width(lcmgl, 4);
+  double xyz[3] = { T->x, T->y, 0 };
+  bot_lcmgl_color3f(lcmgl, 0, 0, 1);
+  bot_lcmgl_circle(lcmgl, xyz, .5);
+  double heading[3] = { T->x + cos(T->theta), T->y + sin(T->theta), 0 };
+  bot_lcmgl_begin(lcmgl, LCMGL_LINES);
+  bot_lcmgl_color3f(lcmgl, 1, 1, 0);
+  bot_lcmgl_vertex3f(lcmgl, xyz[0], xyz[1], xyz[2]);
+  bot_lcmgl_vertex3f(lcmgl, heading[0], heading[1], heading[2]);
+  bot_lcmgl_end(lcmgl);
 }
 
 } //namespace frsm

@@ -208,11 +208,9 @@ public:
 
   /*
    * draw_func:
-   * declare a friend function with access to everything for visualization ;-)
-   * needs to be implimented by the user.
    */
-  friend void ScanMatcher_draw_func(void * user);
-
+  void draw_state_lcmgl(bot_lcmgl_t * lcmgl);
+  void draw_scan_lcmgl(bot_lcmgl_t * lcmgl, frsmPoint * points, unsigned numPoints, const ScanTransform * T);
   /*
    * isUsingIPP:
    * check whether the scan matcher was compiled with IPP

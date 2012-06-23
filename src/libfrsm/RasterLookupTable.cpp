@@ -32,71 +32,77 @@ typedef struct {
 
 RasterLookupTable::~RasterLookupTable()
 {
-  free(distdata); //distim is just the header, so doesn't need to  be freed
+  delete table;
 }
 
 RasterLookupTable::RasterLookupTable(double x0i, double y0i, double x1i, double y1i, double mPP, int pixelDivisor,
     uint8_t initialValue)
 {
-  x0 = x0i;
-  y0 = y0i;
-  x1 = x1i;
-  y1 = y1i;
-  metersPerPixel = mPP;
-  pixelsPerMeter = 1.0 / metersPerPixel;
+  pixelsPerMeter = 1.0 / mPP;
 
-  width = ceil((pixelsPerMeter) * (x1 - x0));
-  height = ceil((pixelsPerMeter) * (y1 - y0));
+  int widthI = ceil((pixelsPerMeter) * (x1i - x0i));
+  int heightI = ceil((pixelsPerMeter) * (y1i - y0i));
 
   //make it divisible by pixelDivisor
-  width = ceil(width / (double) pixelDivisor) * pixelDivisor;
-  height = ceil(height / (double) pixelDivisor) * pixelDivisor;
+  widthI = ceil(widthI / (double) pixelDivisor) * pixelDivisor;
+  heightI = ceil(heightI / (double) pixelDivisor) * pixelDivisor;
 
-  //  printf("x0=%.3f, x1=%.3f, x0=%.3f, x1=%.3f, width=%d, height=%d\n", x0, x1, y0, y1, width, height);
+  double xy0[2] = { x0i, y0i };
+  double xy1[2] = { x0i + widthI * mPP, y0i + heightI * mPP };
 
-  if (width > 8192 || height > 8192)
-    fprintf(stderr, "RasterLookupTable: Enormous dimensions: %dx%d\n", width, height);
-  if (width <= 0 || height < 0) {
-    fprintf(stderr, "ERROR:width or height is less than 0\n");
-    exit(1);
-  }
+  table = new occ_map::Uint8PixelMap(xy0, xy1, mPP, initialValue, true, false);
 
-  int distdata_size = width * height * sizeof(uint8_t);
-  distdata = (uint8_t *) malloc(distdata_size);
-  memset(distdata, initialValue, distdata_size);
+  //fill out conveniance variables
+  x0 = table->xy0[0];
+  y0 = table->xy0[1];
+  x1 = table->xy1[0];
+  y1 = table->xy1[1];
+  width = table->dimensions[0];
+  height = table->dimensions[1];
+  metersPerPixel = table->metersPerPixel;
+  pixelsPerMeter = 1.0 / table->metersPerPixel;
 }
 
 RasterLookupTable::RasterLookupTable(RasterLookupTable * hi_res, int downsampleFactor)
 {
-  x0 = hi_res->x0;
-  y0 = hi_res->y0;
-  x1 = hi_res->x1;
-  y1 = hi_res->y1;
-  metersPerPixel = hi_res->metersPerPixel * downsampleFactor;
+  double x0i = hi_res->table->xy0[0];
+  double y0i = hi_res->table->xy0[1];
+  double x1i = hi_res->table->xy1[0];
+  double y1i = hi_res->table->xy1[1];
+  metersPerPixel = hi_res->table->metersPerPixel * downsampleFactor;
   pixelsPerMeter = 1.0 / metersPerPixel;
 
-  width = ceil((pixelsPerMeter) * (x1 - x0));
-  height = ceil((pixelsPerMeter) * (y1 - y0));
+  width = round((pixelsPerMeter) * (x1i - x0i));
+  height = round((pixelsPerMeter) * (y1i - y0i));
   assert(width == hi_res->width / downsampleFactor);
   assert(height == hi_res->height / downsampleFactor);
 
-  int distdata_size = width * height * sizeof(uint8_t);
-  distdata = (uint8_t *) malloc(distdata_size);
-  memset(distdata, 0, distdata_size);
+  double xy0[2] = { x0i, y0i };
+  double xy1[2] = { x0i + width * metersPerPixel, y0i + height * metersPerPixel };
+  table = new occ_map::Uint8PixelMap(xy0, xy1, metersPerPixel, 0, true, false);
 
   //TODO: Is this too slow?
   frsm_tictoc("downsample_exp");
   //downsample the high res table
   //each pixel is set to the max of all its high-res counterparts
-  for (int i = 0; i < hi_res->height; i++) {
-    for (int j = 0; j < hi_res->width; j++) {
+  for (int i = 0; i < hi_res->table->dimensions[1]; i++) {
+    for (int j = 0; j < hi_res->table->dimensions[0]; j++) {
       int lind = i / downsampleFactor * width + j / downsampleFactor;
-      int hind = i * hi_res->width + j;
-      distdata[lind] = frsm_ucmax(distdata[lind], hi_res->distdata[hind]);
+      int hind = i * hi_res->table->dimensions[0] + j;
+      table->data[lind] = frsm_ucmax(table->data[lind], hi_res->table->data[hind]);
     }
   }
   frsm_tictoc("downsample_exp");
 
+  //fill out conveniance variables
+  x0 = table->xy0[0];
+  y0 = table->xy0[1];
+  x1 = table->xy1[0];
+  y1 = table->xy1[1];
+  width = table->dimensions[0];
+  height = table->dimensions[1];
+  metersPerPixel = table->metersPerPixel;
+  pixelsPerMeter = 1.0 / table->metersPerPixel;
 }
 
 void RasterLookupTable::drawRectangle(double cx, double cy, double x_size, double y_size, double theta,
@@ -147,7 +153,7 @@ void RasterLookupTable::drawRectangle(double cx, double cy, double x_size, doubl
 
       if (lutSqIdx < lutSq_first_zero) {
         int idx = iy * width + ix;
-        distdata[idx] = frsm_ucmax(distdata[idx], lutSq[lutSqIdx]);
+        table->data[idx] = frsm_ucmax(table->data[idx], lutSq[lutSqIdx]);
       }
 
       x += metersPerPixel;
@@ -293,7 +299,6 @@ static int computeKernelSize(double sigma, double slope, float cutoff)
   return 2 * sz + 1;
 }
 
-
 int RasterLookupTable::getNumHits(const frsmPoint * points, const unsigned numPoints, const ScanTransform * XYT0,
     int hitThresh)
 {
@@ -308,7 +313,7 @@ int RasterLookupTable::getNumHits(const frsmPoint * points, const unsigned numPo
     double y = p.x * st + p.y * ct + XYT0->y;
     int ix, iy;
     worldToTable(x, y, &ix, &iy);
-    if (distdata[iy * width + ix] >= hitThresh)
+    if (table->data[iy * width + ix] >= hitThresh)
       hits++;
   }
   return hits;
@@ -326,11 +331,10 @@ float RasterLookupTable::getScore(const frsmPoint * points, const unsigned numPo
     double y = p.x * st + p.y * ct + XYT0->y;
     int ix, iy;
     worldToTable(x, y, &ix, &iy);
-    score += distdata[iy * width + ix];
+    score += table->data[iy * width + ix];
   }
   return score;
 }
-
 
 float RasterLookupTable::getScoreDump(const frsmPoint * points, const unsigned numPoints, const ScanTransform * XYT0,
     const char * name)
@@ -346,13 +350,12 @@ float RasterLookupTable::getScoreDump(const frsmPoint * points, const unsigned n
     double y = p.x * st + p.y * ct + XYT0->y;
     int ix, iy;
     worldToTable(x, y, &ix, &iy);
-    score += distdata[iy * width + ix];
-    fprintf(f, "blah %d %d %d %f %f %d %f \n", pidx, ix, iy, x, y, distdata[iy * width + ix], score);
+    score += table->data[iy * width + ix];
+    fprintf(f, "blah %d %d %d %f %f %d %f \n", pidx, ix, iy, x, y, table->data[iy * width + ix], score);
   }
   fclose(f);
   return score;
 }
-
 
 ScanTransform RasterLookupTable::evaluate2D(const frsmPoint * points, const unsigned numPoints,
     const ScanTransform * XYT0, const ScanTransform * prior, int ixrange, int iyrange, int ixdim, int iydim,
@@ -378,7 +381,7 @@ ScanTransform RasterLookupTable::evaluate2D(const frsmPoint * points, const unsi
     double x = p.x * ct - p.y * st + XYT0->x;
     double y = p.x * st + p.y * ct + XYT0->y;
 
-    // (ix0, iy0) are the coordinates in distdata that
+    // (ix0, iy0) are the coordinates in table->data that
     // correspond to scores.x. It's the (nominal) upper-left
     // corner of our search window.
     int ix, iy;
@@ -402,7 +405,7 @@ ScanTransform RasterLookupTable::evaluate2D(const frsmPoint * points, const unsi
 #ifdef USE_IPP
     //ipp
     IppiSize roiSize = {bx1 - bx0 + 1, by1 - by0 + 1}; //+1 due to <= below
-    uint8_t * pSrc = distdata+ width*by0+bx0;
+    uint8_t * pSrc = table->data+ width*by0+bx0;
     float * pScoreAcum = scores + (by0 - iy0)*ixdim + (bx0 - ix0);
     ippiAdd_8u32f_C1IR(pSrc, dataStep, pScoreAcum, scoresStep, roiSize);
 #else
@@ -411,7 +414,7 @@ ScanTransform RasterLookupTable::evaluate2D(const frsmPoint * points, const unsi
       int sy = iy - iy0; // y coordinate in scores[]
       for (int ix = bx0; ix <= bx1; ix++) {
 
-        int lutval = distdata[iy * width + ix];
+        int lutval = table->data[iy * width + ix];
         int sx = ix - ix0;
 
         int sidx = sy * ixdim + sx;
@@ -469,7 +472,7 @@ ScanTransform RasterLookupTable::evaluate2D(const frsmPoint * points, const unsi
 class score_entry {
 public:
   score_entry(float score_, int it_, int ix_, int iy_) :
-    score(score_), it(it_), ix(ix_), iy(iy_)
+      score(score_), it(it_), ix(ix_), iy(iy_)
   {
   }
   float score;
@@ -861,7 +864,6 @@ ScanTransform RasterLookupTable::evaluate3D(const frsmPoint * points, const unsi
   cov[8] = fmax(cov[8], 1e-3); //often times the top 85% will all be the same theta
   memcpy(bestResult.sigma, cov, 9 * sizeof(double));
 
-
   frsm_tictoc("compute_Variance");
 
 #if DRAW_COST_SURFACE
@@ -898,8 +900,6 @@ ScanTransform RasterLookupTable::evaluate3D(const frsmPoint * points, const unsi
   bot_lcmgl_switch_buffer(lcmgl);
 
 #endif
-
-
 
   //check whether we hit the edge of our ranges...
 
@@ -989,4 +989,69 @@ LutKernel::~LutKernel()
     free(line_kernels);
 }
 
-}//namespace frsm
+#ifdef HAVE_BOT_LCMGL
+/**
+ * Draw the table via LCMGL in libbot2
+ */
+void RasterLookupTable::draw_lcmgl(bot_lcmgl_t * lcmgl)
+{
+  int texid = bot_lcmgl_texture2d(lcmgl, table->data, width, height, width * sizeof(uint8_t),
+      BOT_LCMGL_LUMINANCE, BOT_LCMGL_UNSIGNED_BYTE, BOT_LCMGL_COMPRESS_ZLIB);
+
+  bot_lcmgl_enable(lcmgl, 0x0BE2); // #define 0x0BE2 GL_BLEND
+  bot_lcmgl_enable(lcmgl, 0x0B71); //#define GL_DEPTH_TEST 0x0B71
+
+  bot_lcmgl_texture_draw_quad(lcmgl, texid,
+      x0, y0, 0,
+      x0, y1, 0,
+      x1, y1, 0,
+      x1, y0, 0);
+
+  bot_lcmgl_disable(lcmgl, 0x0BE2); //GL_BLEND
+  bot_lcmgl_disable(lcmgl, 0x0B71); //GL_DEPTH_TEST
+
+}
+#endif
+
+#ifdef HAVE_LCM
+/**
+ * Save the table to a file
+ */
+void RasterLookupTable::save_to_file(const std::string & channel)
+{
+  //TODO:
+}
+/**
+ * Load the table from a file
+ */
+void RasterLookupTable::load_from_file(const std::string & channel)
+{
+  //TODO:
+}
+
+/**
+ * Publish the table over LCM
+ */
+occ_map_pixel_map_t RasterLookupTable::to_lcm_msg()
+{
+
+}
+
+/**
+ * Fill the table with data from an LCM message
+ */
+void RasterLookupTable::from_lcm_msg(const occ_map_pixel_map_t & msg)
+{
+  //TODO:
+}
+
+/**
+ * Publish the table over LCM
+ */
+void RasterLookupTable::lcm_publish(lcm_t * lcm, const std::string & channel)
+{
+
+}
+#endif
+
+}  //namespace frsm

@@ -113,7 +113,7 @@ public:
 
 class ContourExtractor {
 public:
-  ContourExtractor(frsm_laser_type_t laser_type = SM_HOKUYO_UTM);
+  ContourExtractor(frsm_laser_type_t laser_type = FRSM_HOKUYO_UTM);
   virtual
   ~ContourExtractor();
 

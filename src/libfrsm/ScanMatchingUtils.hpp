@@ -68,7 +68,7 @@ typedef struct {
  * currently known/handled laser types
  */
 typedef enum {
-  SM_HOKUYO_UTM, SM_HOKUYO_URG, SM_SICK_LMS, SM_DUMMY_LASER
+  FRSM_HOKUYO_UTM, FRSM_HOKUYO_URG, FRSM_SICK_LMS, FRSM_DUMMY_LASER
 } frsm_laser_type_t;
 
 static inline void frsm_vector_scale_3d(double v[3], double s)
@@ -410,16 +410,16 @@ inline int64_t frsm_get_utime(void)
 static inline frsm_laser_type_t frsm_get_laser_type_from_name(char * laser_name)
 {
   if (strcmp(laser_name, "HOKUYO_UTM") == 0) {
-    return SM_HOKUYO_UTM;
+    return FRSM_HOKUYO_UTM;
   }
   else if (strcmp(laser_name, "HOKUYO_URG") == 0) {
-    return SM_HOKUYO_URG;
+    return FRSM_HOKUYO_URG;
   }
   else if (strcmp(laser_name, "SICK_LMS") == 0) {
-    return SM_SICK_LMS;
+    return FRSM_SICK_LMS;
   }
   else
-    return SM_DUMMY_LASER;
+    return FRSM_DUMMY_LASER;
 }
 
 /** Given an array of colors, a palette is created that linearly interpolates through all the colors. **/

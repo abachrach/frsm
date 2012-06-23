@@ -8,10 +8,9 @@ if(NOT EXISTS ${CONCISE_ARGS_FILE})
 endif()
 
 
-add_executable(frsm scan_matcher.cpp)
-target_link_libraries(frsm z)
-pods_use_pkg_config_packages(frsm frsm lcm bot2-core bot2-lcmgl-client)
-pods_install_executables(frsm)
+add_executable(frsm-lcm scan_matcher.cpp)
+pods_use_pkg_config_packages(frsm-lcm frsm lcm bot2-core bot2-lcmgl-client)
+pods_install_executables(frsm-lcm)
 
 
 

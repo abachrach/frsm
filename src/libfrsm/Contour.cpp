@@ -15,7 +15,7 @@ ContourExtractor::ContourExtractor(frsm_laser_type_t laser_type):
     laserType(laser_type)
 {
   switch (laser_type) {
-  case SM_HOKUYO_UTM:
+  case FRSM_HOKUYO_UTM:
     maxAdjacentDistance = 6;
     maxAdjacentAngularDistance = 3.1 * PI / 180; // radians
     alwaysOkayDistance = 0.33; // 0.20;
@@ -28,7 +28,7 @@ ContourExtractor::ContourExtractor(frsm_laser_type_t laser_type):
     simplifyContourThresh = 0;
     break;
 
-  case SM_HOKUYO_URG:
+  case FRSM_HOKUYO_URG:
     //These used to work well for a URG, haven't tested in a while.
     maxAdjacentDistance = 0.3;
     maxAdjacentAngularDistance = 10.0 * PI / 180; // radians
@@ -42,7 +42,7 @@ ContourExtractor::ContourExtractor(frsm_laser_type_t laser_type):
     simplifyContourThresh = 0;
     break;
 
-  case SM_SICK_LMS:
+  case FRSM_SICK_LMS:
     //THESE ARE WHAT ED USED... PRESUMABLY WITH A SICK
     maxAdjacentDistance = 5;
     maxAdjacentAngularDistance = 3.1 * PI / 180; // radians
