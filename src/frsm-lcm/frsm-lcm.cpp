@@ -293,7 +293,7 @@ int main(int argc, char *argv[])
   }
 
   if (opt.wasParsed("fov")) {
-    if (sscanf(fov_string.c_str(), "%lf,%lf", &app->validBeamAngles[0], &app->validBeamAngles[1]) != 2) {
+    if (sscanf(fov_string.c_str(), "%f,%f", &app->validBeamAngles[0], &app->validBeamAngles[1]) != 2) {
       fprintf(stderr, "Invalid FOV string %s\n", fov_string.c_str());
       opt.usage(true);
     }

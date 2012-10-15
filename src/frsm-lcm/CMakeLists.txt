@@ -8,7 +8,7 @@ if(NOT EXISTS ${CONCISE_ARGS_FILE})
 endif()
 
 
-add_executable(frsm-lcm scan_matcher.cpp)
+add_executable(frsm-lcm frsm-lcm.cpp)
 pods_use_pkg_config_packages(frsm-lcm frsm lcm bot2-core bot2-lcmgl-client)
 pods_install_executables(frsm-lcm)
 
