@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <lcm/lcm.h>
-#include <frsm/FRSM.hpp>
+#include <frsm/frsm.hpp>
 #include <lcmtypes/frsm_rigid_transform_2d_t.h>
 #include <lcmtypes/frsm_planar_lidar_t.h>
 #include <lcmtypes/frsm_pose_t.h>

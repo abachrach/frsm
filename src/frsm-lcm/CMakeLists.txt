@@ -1,5 +1,9 @@
-include_directories(${PROJECT_SOURCE_DIR}/src)
-include_directories(${LCMTYPES_INCLUDE_DIRS})
+pkg_check_modules(BOT_LCMGL bot2-lcmgl-client)
+if(NOT BOT_LCMGL_FOUND)
+    message("bot-lcmgl not found. Not building frsm-lcm executable")
+    return()
+endif()
+
 
 #download the concise-args header
 set(CONCISE_ARGS_FILE ${CMAKE_CURRENT_SOURCE_DIR}/ConciseArgs.hpp)

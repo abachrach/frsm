@@ -1,4 +1,4 @@
-#include "FRSM.hpp"
+#include "ScanMatcher.hpp"
 #include <stdio.h>
 #include <unistd.h>
 #include "RasterLookupTable.hpp"
@@ -930,6 +930,8 @@ int ScanMatcher::isUsingIPP()
 #endif
 }
 
+#ifndef NO_BOT_LCMGL
+
 void ScanMatcher::draw_state_lcmgl(bot_lcmgl_t * lcmgl)
 {
   if (useThreads) {
@@ -996,5 +998,7 @@ void ScanMatcher::draw_scan_lcmgl(bot_lcmgl_t * lcmgl, frsmPoint * points, unsig
   bot_lcmgl_vertex3f(lcmgl, heading[0], heading[1], heading[2]);
   bot_lcmgl_end(lcmgl);
 }
+
+#endif
 
 } //namespace frsm

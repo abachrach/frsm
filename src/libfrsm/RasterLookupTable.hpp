@@ -19,18 +19,16 @@
 #include "ScanMatchingUtils.hpp"
 #include <stdint.h>
 #include <vector>
-#include <lcm/lcm.h>
 
 #include <occ_map/PixelMap.hpp>
 
-#define HAVE_BOT_LCMGL
-#ifdef HAVE_BOT_LCMGL
+#ifndef NO_BOT_LCMGL
 #include <bot_core/bot_core.h>
 #include <bot_lcmgl_client/lcmgl.h>
 #endif
 
-#define HAVE_LCM
-#ifdef HAVE_LCM
+#ifndef NO_LCM
+#include <lcm/lcm.h>
 #include <lcmtypes/frsm/pixel_map_t.hpp>
 #endif
 
@@ -263,14 +261,15 @@ public:
     table->writeValue(xy, v);
   }
 
-#ifdef HAVE_BOT_LCMGL
+#ifndef NO_BOT_LCMGL
   /**
    * Draw the table via LCMGL in libbot2
    */
   void draw_lcmgl(bot_lcmgl_t * lcmgl);
-  #endif
 
-#ifdef HAVE_LCM
+#endif
+
+#ifndef NO_LCM
   /**
    * Save the table to a file
    */

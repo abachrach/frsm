@@ -989,7 +989,7 @@ LutKernel::~LutKernel()
     free(line_kernels);
 }
 
-#ifdef HAVE_BOT_LCMGL
+#ifndef NO_BOT_LCMGL
 /**
  * Draw the table via LCMGL in libbot2
  */
@@ -1013,7 +1013,7 @@ void RasterLookupTable::draw_lcmgl(bot_lcmgl_t * lcmgl)
 }
 #endif
 
-#ifdef HAVE_LCM
+#ifndef NO_LCM
 /**
  * Save the table to a file
  */

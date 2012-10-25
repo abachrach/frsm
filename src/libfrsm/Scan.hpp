@@ -17,7 +17,6 @@
 #include <vector>
 #include <list>
 #include "ScanMatchingUtils.hpp"
-#include <pthread.h>
 #include <float.h>
 
 namespace frsm

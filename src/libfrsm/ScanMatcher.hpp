@@ -206,11 +206,15 @@ public:
   void
   clearScans(bool deleteScans);
 
+#ifndef NO_BOT_LCMGL
   /*
    * draw_func:
    */
   void draw_state_lcmgl(bot_lcmgl_t * lcmgl);
   void draw_scan_lcmgl(bot_lcmgl_t * lcmgl, frsmPoint * points, unsigned numPoints, const ScanTransform * T);
+
+#endif
+
   /*
    * isUsingIPP:
    * check whether the scan matcher was compiled with IPP
