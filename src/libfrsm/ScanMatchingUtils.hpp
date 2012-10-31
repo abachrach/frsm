@@ -19,7 +19,7 @@
 #include <sys/time.h>
 #include <string.h>
 #include <stdio.h>
-#include <pthread.h>
+#include <glib.h>
 #include <stdlib.h>
 #include <malloc.h>
 
@@ -485,16 +485,16 @@ inline unsigned int frsm_hash(const char *string)
 
 //#define DISABLE_TICTOC
 //#define PRINT_TO_FILE
-static pthread_mutex_t tictoc_lock;
+G_LOCK_DEFINE_STATIC(tictoc_lock);
 static int tictoc_initialized = 0;
 inline void frsm_tictoc_init() //this MUST be called if you want tictoc to be thread safe
 {
 #ifdef DISABLE_TICTOC
   return;
 #endif
-  pthread_mutex_init(&tictoc_lock, NULL);
+  G_LOCK(tictoc_lock);
   tictoc_initialized = 1;
-
+  G_UNLOCK(tictoc_lock);
 }
 
 inline double frsm_tictoc(const char *description)
@@ -510,7 +510,7 @@ inline double frsm_tictoc(const char *description)
   double timeTaken = -1;
 
   if (tictoc_initialized)
-    pthread_mutex_lock(&tictoc_lock); //aquire the lock
+    G_LOCK(tictoc_lock); //aquire the lock
 
   static double t[1000] = { 0 };
   static double totalT[1000] = { 0 };
@@ -662,7 +662,7 @@ inline double frsm_tictoc(const char *description)
 #endif
   }
   if (tictoc_initialized)
-    pthread_mutex_unlock(&tictoc_lock);
+    G_UNLOCK(tictoc_lock);
   return timeTaken;
 }
 

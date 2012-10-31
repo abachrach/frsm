@@ -20,7 +20,7 @@
 #include "Scan.hpp"
 #include <vector>
 #include <list>
-#include <pthread.h>
+#include <glib.h>
 #include <float.h>
 
 namespace frsm {
@@ -365,14 +365,14 @@ private:
   friend void * ScanMatcher_thread_wrapper_func(void * user);
   int killThread;
   int cancelAdd;
-  pthread_t rebuilder;
+  GThread * rebuilder;
   void rebuildThreadFunc();
   std::list<Scan *> scansToBeProcessed;
 
-  pthread_mutex_t scans_mutex; //this ordering must be obeyed... lock scans first!
-  pthread_mutex_t rlt_mutex;
-  pthread_mutex_t toBeProcessed_mutex; //shouldn't need to be locked alongside anything else...
-  pthread_cond_t toBeProcessed_cv;
+  GMutex* scans_mutex; //this ordering must be obeyed... lock scans first!
+  GMutex* rlt_mutex;
+  GMutex* toBeProcessed_mutex; //shouldn't need to be locked alongside anything else...
+  GCond* toBeProcessed_cv;
 
 };
 

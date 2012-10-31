@@ -19,11 +19,14 @@
 using namespace std;
 using namespace frsm;
 
-class App {
+namespace {
+
+struct App {
 public:
   lcm_t * lcm;
   ScanMatcher * sm;
-  bot_lcmgl_t * lcmgl;
+  bot_lcmgl_t * lcmgl_state;
+  bot_lcmgl_t * lcmgl_scan;
   bool do_drawing;
   bool publish_relative;
   bool publish_pose;
@@ -40,11 +43,14 @@ public:
   bool verbose;
 
   //lcm reading thread stuff
-  pthread_t processor_thread;
-  pthread_mutex_t lcm_data_mutex;
-  pthread_cond_t newLcmData_cv;
+  GThread* processor_thread;
+  GMutex* lcm_data_mutex;
+  GCond* newLcmData_cv;
   deque<frsm_planar_lidar_t *> * laser_queue;
   int noDrop;
+
+  double lastPrintTime;
+  double lastDrawTime;
 
 };
 
@@ -52,15 +58,12 @@ public:
 //where all the work is done
 ////////////////////////////////////////////////////////////////////
 
-namespace frsm {
-
-}
-
 void draw(App * app, frsmPoint * points, unsigned numPoints, const ScanTransform * T)
 {
-  app->sm->draw_state_lcmgl(app->lcmgl);
-  app->sm->draw_scan_lcmgl(app->lcmgl, points, numPoints, T);
-  bot_lcmgl_switch_buffer(app->lcmgl);
+  app->sm->draw_state_lcmgl(app->lcmgl_state);
+  app->sm->draw_scan_lcmgl(app->lcmgl_scan, points, numPoints, T);
+  bot_lcmgl_switch_buffer(app->lcmgl_scan);
+  bot_lcmgl_switch_buffer(app->lcmgl_state);
 }
 
 static void laser_handler(const lcm_recv_buf_t *rbuf __attribute__((unused)),
@@ -69,10 +72,10 @@ static void laser_handler(const lcm_recv_buf_t *rbuf __attribute__((unused)),
 {
   App * app = (App *) user;
 
-  pthread_mutex_lock(&app->lcm_data_mutex);
+  g_mutex_lock(app->lcm_data_mutex);
   app->laser_queue->push_back(frsm_planar_lidar_t_copy(msg));
-  pthread_mutex_unlock(&app->lcm_data_mutex);
-  pthread_cond_broadcast(&app->newLcmData_cv);
+  g_mutex_unlock(app->lcm_data_mutex);
+  g_cond_broadcast(app->newLcmData_cv);
 }
 
 static void process_laser(const frsm_planar_lidar_t * msg, void * user __attribute__((unused)))
@@ -157,9 +160,8 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user __attribu
   ////////////////////////////////////////////////////////////////////
   //Print current position periodically!
   ////////////////////////////////////////////////////////////////////
-  static double lastPrintTime = 0;
-  if (frsm_get_time() - lastPrintTime > 2.0) {
-    lastPrintTime = frsm_get_time();
+  if (frsm_get_time() - app->lastPrintTime > 2.0) {
+    app->lastPrintTime = frsm_get_time();
     //print out current state
     fprintf(stderr, "x=%+7.3f y=%+7.3f t=%+7.3f\t score=%f hits=%.2f sx=%.2f sxy=%.2f sy=%.2f st=%.2f, numValid=%d\n",
         r.x, r.y, r.theta, r.score, (double) r.hits / (double) numValidPoints, r.sigma[0], r.sigma[1], r.sigma[4],
@@ -169,9 +171,8 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user __attribu
   ////////////////////////////////////////////////////////////////////
   //Do drawing periodically!
   ////////////////////////////////////////////////////////////////////
-  static double lastDrawTime = 0;
-  if (app->do_drawing && frsm_get_time() - lastDrawTime > .2) {
-    lastDrawTime = frsm_get_time();
+  if (app->do_drawing && frsm_get_time() - app->lastDrawTime > .2) {
+    app->lastDrawTime = frsm_get_time();
     frsm_tictoc("drawing");
     draw(app, points, numValidPoints, &r);
     frsm_tictoc("drawing");
@@ -186,23 +187,22 @@ static void process_laser(const frsm_planar_lidar_t * msg, void * user __attribu
 
 }
 
-sig_atomic_t still_groovy = 1;
+sig_atomic_t not_killed = 1;
 
 static void sig_action(int signal, siginfo_t *s, void *user)
 {
-  still_groovy = 0;
+  not_killed = 0;
 }
 
 //dispatcher for new laser data
-static void *
-processingFunc(void * user)
+static void * processingFunc(void * user)
 {
   App * app = (App *) user;
   frsm_planar_lidar_t * local_laser = NULL;
-  pthread_mutex_lock(&app->lcm_data_mutex);
+  g_mutex_lock(app->lcm_data_mutex);
   while (1) {
     if (app->laser_queue->empty()) {
-      pthread_cond_wait(&app->newLcmData_cv, &app->lcm_data_mutex);
+      g_cond_wait(app->newLcmData_cv, app->lcm_data_mutex);
       continue;
     }
 
@@ -219,9 +219,9 @@ processingFunc(void * user)
     local_laser = frsm_planar_lidar_t_copy(laser_msg);
 
     //process the data
-    pthread_mutex_unlock(&app->lcm_data_mutex);
+    g_mutex_unlock(app->lcm_data_mutex);
     process_laser(local_laser, (void *) app);
-    pthread_mutex_lock(&app->lcm_data_mutex);
+    g_mutex_lock(app->lcm_data_mutex);
 
     //remove data from the queue
     int numRemoved = 0;
@@ -237,10 +237,10 @@ processingFunc(void * user)
   return NULL;
 }
 
+} // namespace
+
 int main(int argc, char *argv[])
 {
-  setlinebuf(stdout);
-
   App *app = new App;
 
   app->lidar_chan = "LASER";
@@ -381,19 +381,26 @@ int main(int argc, char *argv[])
       maxSearchRangeTheta, matchingMode, addScanHitThresh, stationaryMotionModel, motionModelPriorWeight, &startPose);
 
   //setup lcm reading thread
-  pthread_mutex_init(&app->lcm_data_mutex, NULL);
-  pthread_cond_init(&app->newLcmData_cv, NULL);
+  app->lcm_data_mutex = g_mutex_new();
+  app->newLcmData_cv = g_cond_new();
   //create processing thread
-  pthread_create(&app->processor_thread, 0, (void *
-  (*)(void *)) processingFunc, (void *) app);
+  app->processor_thread = g_thread_create(processingFunc, (void *) app, 1, NULL);
 
   app->lcm = lcm_create(NULL);
   if (!app->lcm) {
     fprintf(stderr, "ERROR: lcm_create() failed\n");
     return 1;
   }
-  if (app->do_drawing)
-    app->lcmgl = bot_lcmgl_init(app->lcm, "FRSM");
+  if (app->do_drawing) {
+    app->lcmgl_state = bot_lcmgl_init(app->lcm, "FRSM_state");
+    app->lcmgl_scan = bot_lcmgl_init(app->lcm, "FRSM_scan");
+  }
+  else {
+    app->lcmgl_state = NULL;
+    app->lcmgl_scan = NULL;
+  }
+  app->lastPrintTime = 0;
+  app->lastDrawTime = 0;
 
   //subscribe to lidar messages
   frsm_planar_lidar_t_subscribe(app->lcm, app->lidar_chan.c_str(), laser_handler, app);
@@ -410,7 +417,7 @@ int main(int argc, char *argv[])
   sigaction(SIGHUP, &new_action, NULL);
 
   /* sit and wait for messages */
-  while (still_groovy)
+  while (not_killed)
     lcm_handle(app->lcm);
 
   return 0;

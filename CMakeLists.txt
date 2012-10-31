@@ -15,7 +15,7 @@ else()
     lcmtypes_build()
 endif()
 
-include(cmake/ipp.cmake)
+#include(cmake/ipp.cmake)
 
 add_subdirectory(src/libfrsm)
 if(LCM_FOUND)

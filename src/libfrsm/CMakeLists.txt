@@ -2,9 +2,9 @@ file(GLOB cpp_files *.cpp)
 file(GLOB hpp_files *.hpp)
 add_library(frsm SHARED ${cpp_files})
 
-set(REQUIRED_LIBS ${IPP_LIBS} -lpthread)
+set(REQUIRED_LIBS ${IPP_LIBS})
 
-set(REQUIRED_PKGS occ-map)
+set(REQUIRED_PKGS occ-map glib-2.0)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LCM lcm)
 if(NOT LCM_FOUND)

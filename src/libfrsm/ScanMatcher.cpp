@@ -54,13 +54,13 @@ ScanMatcher::ScanMatcher(double metersPerPixel_, double thetaResolution_, int us
     killThread = 0;
 
     /* Initialize mutex and condition variable objects */
-    pthread_mutex_init(&scans_mutex, NULL);
-    pthread_mutex_init(&rlt_mutex, NULL);
-    pthread_mutex_init(&toBeProcessed_mutex, NULL);
-    pthread_cond_init(&toBeProcessed_cv, NULL);
+    scans_mutex = g_mutex_new();
+    rlt_mutex = g_mutex_new();
+    toBeProcessed_mutex = g_mutex_new();
+    toBeProcessed_cv = g_cond_new();
 
     //create rebuilder thread
-    pthread_create(&rebuilder, 0, ScanMatcher_thread_wrapper_func, (void *) this);
+    rebuilder = g_thread_create(ScanMatcher_thread_wrapper_func, (void *) this, 1, NULL);
   }
 }
 
@@ -110,22 +110,21 @@ ScanMatcher::~ScanMatcher()
 
   if (useThreads) {
     //aquire all locks so we can destroy them
-    pthread_mutex_lock(&scans_mutex);
-    pthread_mutex_lock(&rlt_mutex);
+    g_mutex_lock(scans_mutex);
+    g_mutex_lock(rlt_mutex);
     //kill the rebuilder thread
     while (killThread != -1) {
       killThread = 1;
-      pthread_cond_broadcast(&toBeProcessed_cv);
+      g_cond_broadcast(toBeProcessed_cv);
       usleep(10000);
 
     }
 
-    pthread_mutex_lock(&toBeProcessed_mutex);
     // destroy mutex and condition variable objects
-    pthread_mutex_destroy(&scans_mutex);
-    pthread_mutex_destroy(&rlt_mutex);
-    pthread_mutex_destroy(&toBeProcessed_mutex);
-    pthread_cond_destroy(&toBeProcessed_cv);
+    g_mutex_free(scans_mutex);
+    g_mutex_free(rlt_mutex);
+    g_mutex_free(toBeProcessed_mutex);
+    g_cond_free(toBeProcessed_cv);
 
   }
 
@@ -141,9 +140,9 @@ ScanMatcher::~ScanMatcher()
 void ScanMatcher::clearScans(bool deleteScans)
 {
   if (useThreads) {
-    pthread_mutex_lock(&scans_mutex);
-    pthread_mutex_lock(&rlt_mutex);
-    pthread_mutex_lock(&toBeProcessed_mutex);
+    g_mutex_lock(scans_mutex);
+    g_mutex_lock(rlt_mutex);
+    g_mutex_lock(toBeProcessed_mutex);
   }
   if (deleteScans) {
     while (scans.size() > 1) {
@@ -180,9 +179,9 @@ void ScanMatcher::clearScans(bool deleteScans)
   rltTmp_low_res = NULL;
 
   if (useThreads) {
-    pthread_mutex_unlock(&scans_mutex);
-    pthread_mutex_unlock(&rlt_mutex);
-    pthread_mutex_unlock(&toBeProcessed_mutex);
+    g_mutex_unlock(scans_mutex);
+    g_mutex_unlock(rlt_mutex);
+    g_mutex_unlock(toBeProcessed_mutex);
   }
 }
 
@@ -194,11 +193,11 @@ void ScanMatcher::rebuildThreadFunc()
   }
 
   while (true) {
-    pthread_mutex_lock(&toBeProcessed_mutex);
+    g_mutex_lock(toBeProcessed_mutex);
     while (scansToBeProcessed.empty()) {
-      pthread_cond_wait(&toBeProcessed_cv, &toBeProcessed_mutex);
+      g_cond_wait(toBeProcessed_cv, toBeProcessed_mutex);
       if (killThread) {
-        pthread_mutex_unlock(&toBeProcessed_mutex);
+        g_mutex_unlock(toBeProcessed_mutex);
         killThread = -1;
         fprintf(stderr, "rebuild thread exiting\n");
         return;
@@ -209,7 +208,7 @@ void ScanMatcher::rebuildThreadFunc()
     //first swap out the lists so we can let go of the lock...
     scansBeingProcessed = scansToBeProcessed;
     scansToBeProcessed.clear();
-    pthread_mutex_unlock(&toBeProcessed_mutex);
+    g_mutex_unlock(toBeProcessed_mutex);
 
     if (scansBeingProcessed.size() > 1) {
       if (verbose) {
@@ -230,7 +229,7 @@ void ScanMatcher::rebuildThreadFunc()
       }
     }
 
-    pthread_mutex_lock(&scans_mutex);
+    g_mutex_lock(scans_mutex);
     //make space for new scans
     while (numScans() + scansBeingProcessed.size() > maxNumScans) {
       delete scans.front();
@@ -270,7 +269,7 @@ void ScanMatcher::rebuildThreadFunc()
     }
 
     //swap rltTmp with rlt to put it in use
-    pthread_mutex_lock(&rlt_mutex);
+    g_mutex_lock(rlt_mutex);
     if (cancelAdd) {
       if (verbose)
         fprintf(stderr, "Scan add was canceled!\n");
@@ -294,13 +293,13 @@ void ScanMatcher::rebuildThreadFunc()
       if (verbose)
         fprintf(stderr, "rlt swapped!\n");
     }
-    pthread_mutex_unlock(&rlt_mutex);
-    pthread_mutex_unlock(&scans_mutex);
+    g_mutex_unlock(rlt_mutex);
+    g_mutex_unlock(scans_mutex);
 
     //    //clear out scans that got added in the interim
-    //    pthread_mutex_lock(&toBeProcessed_mutex);
+    //    g_mutex_lock(toBeProcessed_mutex);
     //    scansToBeProcessed.clear();
-    //    pthread_mutex_unlock(&toBeProcessed_mutex);
+    //    g_mutex_unlock(toBeProcessed_mutex);
 
   }
 
@@ -465,7 +464,7 @@ ScanTransform ScanMatcher::gridMatch(frsmPoint * points, unsigned numPoints, Sca
     double yRange, double thetaRange, int * xSat, int *ySat, int * thetaSat)
 {
   if (useThreads)
-    pthread_mutex_lock(&rlt_mutex);
+    g_mutex_lock(rlt_mutex);
 
   //  fprintf(stderr,"matching has rlt lock\n");
 
@@ -501,7 +500,7 @@ ScanTransform ScanMatcher::gridMatch(frsmPoint * points, unsigned numPoints, Sca
   //  fprintf(stderr,"r2.x=%f \t r2.y=%f \t r2.t=%f\t r2.score=%f\n",r2.x,r2.y,r2.theta,r2.score);
 
   if (useThreads)
-    pthread_mutex_unlock(&rlt_mutex);
+    g_mutex_unlock(rlt_mutex);
   //  fprintf(stderr,"matching released rlt lock\n");
   return r;
 
@@ -514,7 +513,7 @@ ScanTransform ScanMatcher::coordAscentMatch(frsmPoint * points, unsigned numPoin
     Front = 0, Back = 1, Right = 2, Left = 3, TurnLeft = 4, TurnRight = 5, Done = 6
   } move_type_t;
   if (useThreads)
-    pthread_mutex_lock(&rlt_mutex);
+    g_mutex_lock(rlt_mutex);
 
   //halve the step size this many times.
   int numRounds = 5;
@@ -609,7 +608,7 @@ ScanTransform ScanMatcher::coordAscentMatch(frsmPoint * points, unsigned numPoin
   currentTrans.hits = rlt->getNumHits(points, numPoints, &currentTrans, hitThresh);
 
   if (useThreads)
-    pthread_mutex_unlock(&rlt_mutex);
+    g_mutex_unlock(rlt_mutex);
 
   return currentTrans;
 }
@@ -625,11 +624,11 @@ void ScanMatcher::addScanToBeProcessed(frsmPoint * points, unsigned numPoints, S
   }
   else {
     Scan * s = new Scan(numPoints, points, *T, laser_type, utime);
-    pthread_mutex_lock(&toBeProcessed_mutex);
+    g_mutex_lock(toBeProcessed_mutex);
     scansToBeProcessed.push_back(s);
     cancelAdd = false;
-    pthread_mutex_unlock(&toBeProcessed_mutex);
-    pthread_cond_broadcast(&toBeProcessed_cv);
+    g_mutex_unlock(toBeProcessed_mutex);
+    g_cond_broadcast(toBeProcessed_cv);
   }
 }
 
@@ -644,7 +643,7 @@ void ScanMatcher::addScan(Scan *s, bool rebuildNow)
 {
 
   if (useThreads)
-    pthread_mutex_lock(&scans_mutex);
+    g_mutex_lock(scans_mutex);
   if (s != NULL) {
     scans.push_back(s);
     if (scans.size() > maxNumScans) {
@@ -672,7 +671,7 @@ void ScanMatcher::addScan(Scan *s, bool rebuildNow)
     }
 
     if (useThreads)
-      pthread_mutex_lock(&rlt_mutex);
+      g_mutex_lock(rlt_mutex);
 
     //rebuild now
     //    frsm_tictoc("rebuildRaster_olson");
@@ -700,11 +699,11 @@ void ScanMatcher::addScan(Scan *s, bool rebuildNow)
     }
 
     if (useThreads) {
-      pthread_mutex_unlock(&rlt_mutex);
+      g_mutex_unlock(rlt_mutex);
     }
   }
   if (useThreads) {
-    pthread_mutex_unlock(&scans_mutex);
+    g_mutex_unlock(scans_mutex);
   }
 
 }
@@ -875,9 +874,9 @@ ScanTransform ScanMatcher::matchSuccessive(frsmPoint * points, unsigned numPoint
     }
     else {
       if (useThreads) { //dip in hits was temporary... don't add the map if we haven't yet
-        pthread_mutex_lock(&rlt_mutex);
+        g_mutex_lock(rlt_mutex);
         cancelAdd = true;
-        pthread_mutex_unlock(&rlt_mutex);
+        g_mutex_unlock(rlt_mutex);
       }
     }
 
@@ -935,8 +934,8 @@ int ScanMatcher::isUsingIPP()
 void ScanMatcher::draw_state_lcmgl(bot_lcmgl_t * lcmgl)
 {
   if (useThreads) {
-    pthread_mutex_lock(&scans_mutex);
-    pthread_mutex_lock(&rlt_mutex);
+    g_mutex_lock(scans_mutex);
+    g_mutex_lock(rlt_mutex);
   }
 
   //draw the gridmap
@@ -967,8 +966,8 @@ void ScanMatcher::draw_state_lcmgl(bot_lcmgl_t * lcmgl)
   }
 
   if (useThreads) {
-    pthread_mutex_unlock(&scans_mutex);
-    pthread_mutex_unlock(&rlt_mutex);
+    g_mutex_unlock(scans_mutex);
+    g_mutex_unlock(rlt_mutex);
   }
 }
 

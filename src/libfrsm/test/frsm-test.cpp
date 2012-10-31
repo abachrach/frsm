@@ -1,14 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <frsm/frsm.hpp>
-#include <pthread.h>
 
 using namespace std;
 using namespace frsm;
 
-int main(int argc, char *argv[])
+void runTest()
 {
-//  pthread_mutex_lock(NULL);
   //hardcoded scan matcher params
   double metersPerPixel = .02; //translational resolution for the brute force search
   double thetaResolution = .01; //angular step size for the brute force search
@@ -25,11 +23,19 @@ int main(int argc, char *argv[])
   else
     fprintf(stderr, "NOT using IPP\n");
 
+  //TODO: load two fake scans, and match them... this won't run
   ScanTransform T;
   sm->addScan(NULL, 0, &T, FRSM_HOKUYO_UTM, 0, true);
   sm->gridMatch(NULL, 0, &T, .5, .5, .1);
 
-  //TODO: load two fake scans, and match them
+
+
+}
+
+int main(int argc, char *argv[])
+{
+
+  runTest();
 
   return 0;
 }
