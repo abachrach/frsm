@@ -952,14 +952,14 @@ void ScanMatcher::draw_state_lcmgl(bot_lcmgl_t * lcmgl)
       bot_lcmgl_color3f(lcmgl, 0, 1, 0);
       for (unsigned i = 0; i < s->contours[cidx]->points.size(); i++) {
         frsmPoint p0 = s->contours[cidx]->points[i];
-        bot_lcmgl_vertex3f(lcmgl, p0.x, p0.y, 0);
+        bot_lcmgl_vertex2f(lcmgl, p0.x, p0.y);
       }
       bot_lcmgl_end(lcmgl);
       bot_lcmgl_color3f(lcmgl, 0, 1, 1);
-      bot_lcmgl_begin(lcmgl, LCMGL_POINTS); //TODO: Is there a way to do this all at once?
+      bot_lcmgl_begin(lcmgl, LCMGL_POINTS);
       for (unsigned i = 0; i < s->contours[cidx]->points.size(); i++) {
         frsmPoint p0 = s->contours[cidx]->points[i];
-        bot_lcmgl_vertex3f(lcmgl, p0.x, p0.y, 0);
+        bot_lcmgl_vertex2f(lcmgl, p0.x, p0.y);
       }
       bot_lcmgl_end(lcmgl);
     }

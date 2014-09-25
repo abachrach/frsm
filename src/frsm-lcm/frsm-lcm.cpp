@@ -54,9 +54,6 @@ public:
 
 };
 
-////////////////////////////////////////////////////////////////////
-//where all the work is done
-////////////////////////////////////////////////////////////////////
 
 void draw(App * app, frsmPoint * points, unsigned numPoints, const ScanTransform * T)
 {
@@ -78,6 +75,10 @@ static void laser_handler(const lcm_recv_buf_t *rbuf __attribute__((unused)),
   g_cond_broadcast(app->newLcmData_cv);
 }
 
+
+////////////////////////////////////////////////////////////////////
+//where all the work is done
+////////////////////////////////////////////////////////////////////
 static void process_laser(const frsm_planar_lidar_t * msg, void * user __attribute__((unused)))
 {
   App * app = (App *) user;

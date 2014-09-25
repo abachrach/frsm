@@ -23,7 +23,8 @@ void runTest()
   else
     fprintf(stderr, "NOT using IPP\n");
 
-  //TODO: load two fake scans, and match them... this won't run
+  //TODO: make this a real test where we create two fake scans, and match them... for now we just
+  // make sure things build, but don't actually run anything :-/
   ScanTransform T;
   sm->addScan(NULL, 0, &T, FRSM_HOKUYO_UTM, 0, true);
   sm->gridMatch(NULL, 0, &T, .5, .5, .1);

@@ -1005,10 +1005,10 @@ void RasterLookupTable::draw_lcmgl(bot_lcmgl_t * lcmgl)
   bot_lcmgl_enable(lcmgl, 0x0B71); //#define GL_DEPTH_TEST 0x0B71
 
   bot_lcmgl_texture_draw_quad(lcmgl, texid,
-      x0, y0, 0,
-      x0, y1, 0,
-      x1, y1, 0,
-      x1, y0, 0);
+      x0, y0, -0.01,
+      x0, y1, -0.01,
+      x1, y1, -0.01,
+      x1, y0, -0.01);
 
   bot_lcmgl_disable(lcmgl, 0x0BE2); //GL_BLEND
   bot_lcmgl_disable(lcmgl, 0x0B71); //GL_DEPTH_TEST
@@ -1054,7 +1054,6 @@ void RasterLookupTable::from_lcm_msg(const frsm_pixel_map_t & msg)
  */
 void RasterLookupTable::lcm_publish(lcm_t * lcm, const std::string& channel, int64_t utime)
 {
-  // TODO(abe): pass in the utime?
   frsm_pixel_map_t_publish(lcm, channel.c_str(), table->get_pixel_map_t(utime));
 }
 #endif
