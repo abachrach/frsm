@@ -1,17 +1,17 @@
 file(GLOB cpp_files *.cpp)
-file(GLOB hpp_files *.hpp)
+file(GLOB hpp_files *.h*)
 add_library(frsm SHARED ${cpp_files})
 
 set(REQUIRED_LIBS ${IPP_LIBS})
 
-set(REQUIRED_PKGS occ-map glib-2.0)
+set(REQUIRED_PKGS glib-2.0)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LCM lcm)
 if(NOT LCM_FOUND)
     message("LCM not found.  Disabling LCM support")
     add_definitions(-DNO_LCM)    
 else()
-    set(REQUIRED_PKGS ${REQUIRED_PKGS} lcm lcmtypes_frsm lcmtypes_occ-map)
+    set(REQUIRED_PKGS ${REQUIRED_PKGS} lcm lcmtypes_frsm)
 endif()
 
 pkg_check_modules(BOT_LCMGL bot2-lcmgl-client)

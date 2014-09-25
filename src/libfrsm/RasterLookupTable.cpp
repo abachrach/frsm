@@ -50,8 +50,11 @@ RasterLookupTable::RasterLookupTable(double x0i, double y0i, double x1i, double 
   double xy0[2] = { x0i, y0i };
   double xy1[2] = { x0i + widthI * mPP, y0i + heightI * mPP };
 
-  table = new occ_map::Uint8PixelMap(xy0, xy1, mPP, initialValue, true, false);
+  table = new frsm::Uint8PixelMap(xy0, xy1, mPP, initialValue, true, false);
+  SetConvenienceVars();
+}
 
+void RasterLookupTable::SetConvenienceVars() {
   //fill out conveniance variables
   x0 = table->xy0[0];
   y0 = table->xy0[1];
@@ -79,7 +82,7 @@ RasterLookupTable::RasterLookupTable(RasterLookupTable * hi_res, int downsampleF
 
   double xy0[2] = { x0i, y0i };
   double xy1[2] = { x0i + width * metersPerPixel, y0i + height * metersPerPixel };
-  table = new occ_map::Uint8PixelMap(xy0, xy1, metersPerPixel, 0, true, false);
+  table = new frsm::Uint8PixelMap(xy0, xy1, metersPerPixel, 0, true, false);
 
   //TODO: Is this too slow?
   frsm_tictoc("downsample_exp");
@@ -1017,14 +1020,14 @@ void RasterLookupTable::draw_lcmgl(bot_lcmgl_t * lcmgl)
 /**
  * Save the table to a file
  */
-void RasterLookupTable::save_to_file(const std::string & channel)
+void RasterLookupTable::save_to_file(const std::string& name)
 {
-  //TODO:
+  table->saveToFile(name);
 }
 /**
  * Load the table from a file
  */
-void RasterLookupTable::load_from_file(const std::string & channel)
+void RasterLookupTable::load_from_file(const std::string& name)
 {
   //TODO:
 }
@@ -1032,25 +1035,27 @@ void RasterLookupTable::load_from_file(const std::string & channel)
 /**
  * Publish the table over LCM
  */
-occ_map_pixel_map_t RasterLookupTable::to_lcm_msg()
+frsm_pixel_map_t RasterLookupTable::to_lcm_msg()
 {
-
+  return *table->get_pixel_map_t(0);
 }
 
 /**
  * Fill the table with data from an LCM message
  */
-void RasterLookupTable::from_lcm_msg(const occ_map_pixel_map_t & msg)
+void RasterLookupTable::from_lcm_msg(const frsm_pixel_map_t & msg)
 {
-  //TODO:
+  table = new frsm::Uint8PixelMap(&msg);
+  SetConvenienceVars();
 }
 
 /**
  * Publish the table over LCM
  */
-void RasterLookupTable::lcm_publish(lcm_t * lcm, const std::string & channel)
+void RasterLookupTable::lcm_publish(lcm_t * lcm, const std::string& channel, int64_t utime)
 {
-
+  // TODO(abe): pass in the utime?
+  frsm_pixel_map_t_publish(lcm, channel.c_str(), table->get_pixel_map_t(utime));
 }
 #endif
 

@@ -27,9 +27,6 @@ void runTest()
   ScanTransform T;
   sm->addScan(NULL, 0, &T, FRSM_HOKUYO_UTM, 0, true);
   sm->gridMatch(NULL, 0, &T, .5, .5, .1);
-
-
-
 }
 
 int main(int argc, char *argv[])

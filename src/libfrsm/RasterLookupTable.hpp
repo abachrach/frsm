@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <vector>
 
-#include <occ_map/PixelMap.hpp>
+#include "PixelMap.hpp"
 
 #ifndef NO_BOT_LCMGL
 #include <bot_core/bot_core.h>
@@ -273,31 +273,33 @@ public:
   /**
    * Save the table to a file
    */
-  void save_to_file(const std::string & channel); //TODO: IMPLIMENT ME!
+  void save_to_file(const std::string& name);
   /**
    * Load the table from a file
    */
-  void load_from_file(const std::string & channel); //TODO: IMPLIMENT ME!
+  void load_from_file(const std::string& name);
 
   /**
    * Publish the table over LCM
    */
-  occ_map_pixel_map_t to_lcm_msg();
+  frsm_pixel_map_t to_lcm_msg();
 
   /**
    * Fill the table with data from an LCM message
    */
-  void from_lcm_msg(const occ_map_pixel_map_t & msg); //TODO: IMPLIMENT ME!
+  void from_lcm_msg(const frsm_pixel_map_t& msg);
 
   /**
    * Publish the table over LCM
    */
-  void lcm_publish(lcm_t * lcm, const std::string & channel);
+  void lcm_publish(lcm_t * lcm, const std::string& channel, int64_t utime);
 
 #endif
 
 private:
-  occ_map::Uint8PixelMap * table;
+  void SetConvenienceVars();
+
+  frsm::Uint8PixelMap * table;
 
   //conveniance variables
   //extremum of the table in meters
