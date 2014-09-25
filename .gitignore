@@ -1,0 +1,9 @@
+.cproject
+.project
+build/
+lcmtypes/c/
+lcmtypes/cpp/
+lcmtypes/java/
+lcmtypes/python/
+pod-build/
+src/frsm-lcm/ConciseArgs.hpp
