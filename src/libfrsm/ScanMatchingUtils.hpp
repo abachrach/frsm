@@ -21,7 +21,6 @@
 #include <stdio.h>
 #include <glib.h>
 #include <stdlib.h>
-#include <malloc.h>
 
 namespace frsm {
 
