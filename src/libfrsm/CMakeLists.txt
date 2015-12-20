@@ -2,7 +2,7 @@ file(GLOB cpp_files *.cpp)
 file(GLOB hpp_files *.h*)
 add_library(frsm SHARED ${cpp_files})
 
-set(REQUIRED_LIBS ${IPP_LIBS})
+set(REQUIRED_LIBS ${IPP_LIBS} -lz)
 
 set(REQUIRED_PKGS glib-2.0)
 find_package(PkgConfig REQUIRED)
