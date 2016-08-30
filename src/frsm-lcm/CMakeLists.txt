@@ -8,7 +8,7 @@ endif()
 #download the concise-args header
 set(CONCISE_ARGS_FILE ${CMAKE_CURRENT_SOURCE_DIR}/ConciseArgs.hpp)
 if(NOT EXISTS ${CONCISE_ARGS_FILE})
-    file(DOWNLOAD "http://concise-args.googlecode.com/files/ConciseArgs.hpp" ${CONCISE_ARGS_FILE} SHOW_PROGRESS)
+    file(DOWNLOAD "https://raw.githubusercontent.com/abachrach/concise-args/master/ConciseArgs.hpp" ${CONCISE_ARGS_FILE} SHOW_PROGRESS)
 endif()
 
 
