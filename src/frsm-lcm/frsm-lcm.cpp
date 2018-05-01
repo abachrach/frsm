@@ -12,7 +12,11 @@
 #include <pthread.h>
 #include <bot_core/bot_core.h>
 #include <bot_lcmgl_client/lcmgl.h>
+#ifdef __APPLE__
+#include <OpenGL/gl.h>
+#else
 #include <GL/gl.h>
+#endif
 
 #include "ConciseArgs.hpp"
 
